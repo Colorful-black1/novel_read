@@ -2,6 +2,7 @@
 library;
 
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:file_picker/file_picker.dart';
 
@@ -44,45 +45,35 @@ class ImportService {
   }
 
   /// 导入指定 TXT 文件。
+  ///
+  /// 解码与章节解析是 CPU 密集操作（20MB 文件可达数十万行），
+  /// 全部放在后台 Isolate 执行，避免冻结 UI。
   Future<ImportResult> importFile(String path) async {
     try {
-      final file = File(path);
-      if (!await file.exists()) {
+      if (!await File(path).exists()) {
         return ImportResult.fail('文件不存在：$path');
       }
-      final size = await file.length();
-
-      // 头部取样用于书籍识别哈希
-      final head = await EncodingDetector.readHead(path, bookKeySampleBytes);
-
-      // 文件名作为书名（去掉扩展名）
-      final title = _fileNameToTitle(path);
-
-      final bookKey = BookKey.compute(
-          title: title, fileSize: size, headBytes: head);
+      final parsed = await Isolate.run(() => _parseFile(path));
 
       // 已存在则跳过重复导入
-      final existing = await _books.findByBookKey(bookKey);
+      final existing = await _books.findByBookKey(parsed.bookKey);
       if (existing != null) {
         return ImportResult.ok(existing);
       }
 
-      final content = await EncodingDetector.decodeFile(path);
-      final parsed = ChapterParser.parse(content);
-
       final book = Book(
         id: 0,
-        title: title,
+        title: parsed.title,
         author: '',
         filePath: path,
-        fileSize: size,
-        bookKey: bookKey,
-        chapterCount: parsed.length,
+        fileSize: parsed.size,
+        bookKey: parsed.bookKey,
+        chapterCount: parsed.chapters.length,
         addedAt: DateTime.now(),
       );
       final chapters = <Chapter>[];
-      for (var i = 0; i < parsed.length; i++) {
-        final c = parsed[i];
+      for (var i = 0; i < parsed.chapters.length; i++) {
+        final c = parsed.chapters[i];
         chapters.add(Chapter(
           id: 0,
           bookId: 0,
@@ -108,9 +99,26 @@ class ImportService {
     }
   }
 
-  /// 读取整本书内容。
-  Future<String> readBookContent(Book book) async {
-    return EncodingDetector.decodeFile(book.filePath);
+  /// 读取整本书内容（解码在后台 Isolate 执行）。
+  Future<String> readBookContent(Book book) {
+    return Isolate.run(() => EncodingDetector.decodeFile(book.filePath));
+  }
+
+  /// 在 Isolate 中执行的文件解析：读头部哈希 → 解码 → 章节切分。
+  static Future<_ParsedFile> _parseFile(String path) async {
+    final size = await File(path).length();
+    final head = await EncodingDetector.readHead(path, bookKeySampleBytes);
+    final title = _fileNameToTitle(path);
+    final bookKey =
+        BookKey.compute(title: title, fileSize: size, headBytes: head);
+    final content = await EncodingDetector.decodeFile(path);
+    final chapters = ChapterParser.parse(content);
+    return _ParsedFile(
+      title: title,
+      size: size,
+      bookKey: bookKey,
+      chapters: chapters,
+    );
   }
 
   static String _fileNameToTitle(String path) {
@@ -120,4 +128,19 @@ class ImportService {
     }
     return name.isEmpty ? '未命名书籍' : name;
   }
+}
+
+/// 文件解析结果（Isolate 间传输的纯数据对象）。
+class _ParsedFile {
+  final String title;
+  final int size;
+  final String bookKey;
+  final List<ParsedChapter> chapters;
+
+  _ParsedFile({
+    required this.title,
+    required this.size,
+    required this.bookKey,
+    required this.chapters,
+  });
 }

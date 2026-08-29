@@ -2,6 +2,10 @@
 ///
 /// 基于 TextPainter 按视口尺寸将章节文本切分为页，
 /// 每页记录字符区间 [start, end)，用于进度定位与翻页。
+///
+/// 性能关键：整章只做一次布局，之后仅按行边界查询字符偏移，
+/// 复杂度为 O(1) 次排版 + O(页数) 次查询。
+/// （旧实现每页对"剩余全文"重新排版，为 O(页数²)，大章节严重卡顿。）
 library;
 
 import 'package:flutter/painting.dart';
@@ -30,49 +34,43 @@ class Paginator {
     required Size viewport,
     required EdgeInsets padding,
   }) {
+    if (text.isEmpty) {
+      return [const PageRange(0, 0)];
+    }
+
     final maxWidth = (viewport.width - padding.horizontal).clamp(1.0, 100000.0);
     final maxPageHeight =
         (viewport.height - padding.vertical).clamp(1.0, 100000.0);
     final linesPerPage = (maxPageHeight / lineHeight).floor().clamp(1, 500);
 
-    final pages = <PageRange>[];
-    // 注意：不能设置 maxLines，否则溢出内容被截断，
-    // metrics.length 永远不会超过 linesPerPage，整章会被错误地排成单页
+    // 整章一次布局（注意不能设置 maxLines，否则溢出被截断、无法探测分页边界）
     final tp = TextPainter(textDirection: TextDirection.ltr);
+    tp.text = TextSpan(text: text, style: style);
+    tp.layout(maxWidth: maxWidth);
 
-    var pos = 0;
-    var guard = 0;
-    while (pos < text.length && guard < 100000) {
-      guard++;
-      tp.text = TextSpan(text: text.substring(pos), style: style);
-      tp.layout(maxWidth: maxWidth);
+    final metrics = tp.computeLineMetrics();
+    final totalLines = metrics.length;
 
-      final metrics = tp.computeLineMetrics();
-      if (metrics.length <= linesPerPage) {
-        pages.add(PageRange(pos, text.length));
-        break;
-      }
-
-      // 取第 linesPerPage 行的起始位置作为下一页起点
-      final nextLineTop = metrics[linesPerPage].baseline -
-          metrics[linesPerPage].height;
-      final nextPos = tp
-          .getPositionForOffset(Offset(0, nextLineTop + 1))
+    final pages = <PageRange>[];
+    var pageStart = 0;
+    var boundaryLine = linesPerPage;
+    while (boundaryLine < totalLines) {
+      // 第 boundaryLine 行的顶部 y 坐标 → 该行起始字符偏移（页尾边界）
+      final m = metrics[boundaryLine];
+      var pos = tp
+          .getPositionForOffset(Offset(0, m.baseline - m.height + 1))
           .offset;
-      if (nextPos <= pos) {
-        // 防御：无法推进时强制前进，避免死循环
-        pages.add(PageRange(pos, pos + 1));
-        pos += 1;
-      } else {
-        pages.add(PageRange(pos, nextPos));
-        pos = nextPos;
+      if (pos <= pageStart) {
+        // 防御：偏移未推进（异常排版）时按字符硬切，避免死循环
+        pos = (pageStart + 1).clamp(0, text.length);
       }
+      pages.add(PageRange(pageStart, pos));
+      pageStart = pos;
+      boundaryLine += linesPerPage;
     }
+    pages.add(PageRange(pageStart, text.length));
     tp.dispose();
 
-    if (pages.isEmpty) {
-      pages.add(const PageRange(0, 0));
-    }
     return pages;
   }
 

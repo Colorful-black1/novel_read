@@ -37,19 +37,25 @@ class ChapterParser {
       var lineEnd = content.indexOf('\n', lineStart);
       if (lineEnd < 0) lineEnd = content.length;
       final line = content.substring(lineStart, lineEnd);
-      final match = _chapterTitle.firstMatch(line);
-      if (match != null) {
-        // 遇到新标题：先结算上一章（若前面有实际内容）
-        if (lineStart > currentStart || results.isNotEmpty || currentStart > 0) {
-          results.add(ParsedChapter(
-            title: currentTitle,
-            startOffset: currentStart,
-            endOffset: lineStart,
-          ));
+      // 快速预判：章节标题必以"第"开头，避免对全书每行跑正则
+      // （20MB 书籍几十万行，正则是导入耗时的主要来源之一）
+      if (line.trimLeft().startsWith('第')) {
+        final match = _chapterTitle.firstMatch(line);
+        if (match != null) {
+          // 遇到新标题：先结算上一章（若前面有实际内容）
+          if (lineStart > currentStart ||
+              results.isNotEmpty ||
+              currentStart > 0) {
+            results.add(ParsedChapter(
+              title: currentTitle,
+              startOffset: currentStart,
+              endOffset: lineStart,
+            ));
+          }
+          currentTitle = _normalizeTitle(match.group(1)!);
+          currentStart = lineStart;
+          found = true;
         }
-        currentTitle = _normalizeTitle(match.group(1)!);
-        currentStart = lineStart;
-        found = true;
       }
       lineStart = lineEnd + 1;
     }

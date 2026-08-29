@@ -142,6 +142,13 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
 
   List<PageRange>? _lastPages;
 
+  /// 分页缓存（key = 章节+样式+视口，见 build 中说明）
+  String? _pagesCacheKey;
+  List<PageRange>? _cachedPages;
+
+  /// 当前翻页控制器所属章节（章节切换时需重建控制器）
+  int _controllerChapterIndex = -1;
+
   // ---------------- 翻页 ----------------
 
   void _goPage(int delta, List<PageRange> pages) {
@@ -242,30 +249,52 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
       backgroundColor: bg,
       body: LayoutBuilder(builder: (ctx, constraints) {
         _viewportHeight = constraints.maxHeight;
-        final pages = Paginator.paginate(
-          text: _chapterText,
-          style: style,
-          lineHeight: cfg.effectiveLineHeight,
-          viewport: constraints.biggest,
-          padding: readerPadding,
-        );
+        // 分页缓存：章节/字号/行距/字体/视口 任一变化才重排。
+        // 排版是 UI 线程上的重操作，翻页/呼出菜单/失焦等普通重建必须复用缓存，
+        // 否则大章节每次 setState 都会重新分页导致明显卡顿。
+        final pageKey = '$_chapterIndex|${cfg.fontSize}|${cfg.lineSpacing}|'
+            '${cfg.fontFamily}|'
+            '${constraints.maxWidth.round()}x${constraints.maxHeight.round()}';
+        if (pageKey != _pagesCacheKey || _cachedPages == null) {
+          _cachedPages = Paginator.paginate(
+            text: _chapterText,
+            style: style,
+            lineHeight: cfg.effectiveLineHeight,
+            viewport: constraints.biggest,
+            padding: readerPadding,
+          );
+          _pagesCacheKey = pageKey;
+        }
+        final pages = _cachedPages!;
         _lastPages = pages;
 
-        // 初次进入：定位到恢复的进度页
+        // 解析本章目标页：恢复的进度 / 章末回跳 / 普通越界钳制
+        var targetPage = _pageIndex;
         if (_pendingCharOffset > 0) {
-          final target = Paginator.locate(pages, _pendingCharOffset);
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            if (cfg.pageMode == PageMode.horizontal) {
-              _ensurePageController().jumpToPage(target);
-            } else {
-              _ensureScrollController().jumpTo(target * constraints.maxHeight);
-            }
-            setState(() => _pageIndex = target);
-          });
+          targetPage = Paginator.locate(pages, _pendingCharOffset);
           _pendingCharOffset = 0;
         } else if (_pageIndex >= pages.length) {
-          _pageIndex = pages.length - 1;
+          targetPage = pages.length - 1;
+        }
+
+        // 章节切换后必须重建翻页控制器：旧控制器停留在上一章的页位置，
+        // 直接复用会让新章节从旧页码开始显示（表现为跳过新章节前面的页）。
+        if (_controllerChapterIndex != _chapterIndex) {
+          final oldPageController = _pageController;
+          final oldScrollController = _scrollController;
+          // 延迟到帧末销毁，避免与当前帧仍在引用旧控制器的组件树冲突
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            oldPageController?.dispose();
+            oldScrollController?.dispose();
+          });
+          _pageController = PageController(initialPage: targetPage);
+          _scrollController = ScrollController(
+            initialScrollOffset: targetPage * constraints.maxHeight,
+          );
+          _controllerChapterIndex = _chapterIndex;
+        }
+        if (_pageIndex != targetPage) {
+          _pageIndex = targetPage;
         }
 
         final contentStack = Stack(
