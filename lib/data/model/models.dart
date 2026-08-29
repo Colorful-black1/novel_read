@@ -24,7 +24,8 @@ class Book {
   });
 
   Map<String, Object?> toMap() => {
-        'id': id,
+        // id 为 0 表示新增记录，省略以交给 SQLite 自增，避免主键冲突
+        if (id != 0) 'id': id,
         'title': title,
         'author': author,
         'filePath': filePath,
@@ -65,7 +66,7 @@ class Chapter {
   });
 
   Map<String, Object?> toMap() => {
-        'id': id,
+        if (id != 0) 'id': id,
         'bookId': bookId,
         'idx': idx,
         'title': title,
@@ -146,7 +147,7 @@ class SyncPair {
   });
 
   Map<String, Object?> toMap() => {
-        'id': id,
+        if (id != 0) 'id': id,
         'deviceId': deviceId,
         'deviceName': deviceName,
         'token': token,
@@ -181,7 +182,7 @@ class SyncLog {
   });
 
   Map<String, Object?> toMap() => {
-        'id': id,
+        if (id != 0) 'id': id,
         'time': time.millisecondsSinceEpoch,
         'direction': direction,
         'detail': detail,
@@ -214,7 +215,7 @@ class ConflictSnapshot {
   });
 
   Map<String, Object?> toMap() => {
-        'id': id,
+        if (id != 0) 'id': id,
         'bookKey': bookKey,
         'chapterIndex': chapterIndex,
         'charOffset': charOffset,

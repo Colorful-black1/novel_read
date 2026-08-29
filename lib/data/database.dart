@@ -28,14 +28,15 @@ class AppDatabase {
       p.join(dir.path, 'novel_read.db'),
       options: OpenDatabaseOptions(
         version: 1,
-        onCreate: _onCreate,
+        onCreate: createSchema,
       ),
     );
     _db = db;
     return db;
   }
 
-  static Future<void> _onCreate(Database db, int version) async {
+  /// 建表（公开以便单元测试在内存库上复用）。
+  static Future<void> createSchema(Database db, int version) async {
     await db.execute('''
       CREATE TABLE books (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
