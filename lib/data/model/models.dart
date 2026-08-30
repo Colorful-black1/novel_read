@@ -18,6 +18,9 @@ class Book {
   /// 所属分组 id，null 表示未分组
   final int? groupId;
 
+  /// 自定义封面图片路径，空串表示使用默认色块封面
+  final String coverPath;
+
   Book({
     required this.id,
     required this.title,
@@ -29,6 +32,7 @@ class Book {
     required this.addedAt,
     this.sortIndex = 0,
     this.groupId,
+    this.coverPath = '',
   });
 
   Map<String, Object?> toMap() => {
@@ -43,6 +47,7 @@ class Book {
         'addedAt': addedAt.millisecondsSinceEpoch,
         'sortIndex': sortIndex,
         'groupId': groupId,
+        'coverPath': coverPath,
       };
 
   static Book fromMap(Map<String, Object?> map) => Book(
@@ -56,6 +61,7 @@ class Book {
         addedAt: DateTime.fromMillisecondsSinceEpoch(map['addedAt'] as int),
         sortIndex: (map['sortIndex'] as int?) ?? 0,
         groupId: map['groupId'] as int?,
+        coverPath: (map['coverPath'] as String?) ?? '',
       );
 }
 
@@ -269,5 +275,44 @@ class ConflictSnapshot {
         updatedAtMs: map['updatedAt'] as int,
         savedAt:
             DateTime.fromMillisecondsSinceEpoch(map['savedAt'] as int),
+      );
+}
+
+/// 书签：定位到某章某页内偏移，附带正文摘录用于列表预览
+class Bookmark {
+  final int id;
+  final String bookKey;
+  final int chapterIndex;
+  final int charOffset;
+  final String snippet;
+  final int createdAtMs;
+
+  Bookmark({
+    this.id = 0,
+    required this.bookKey,
+    required this.chapterIndex,
+    required this.charOffset,
+    this.snippet = '',
+    required this.createdAtMs,
+  });
+
+  DateTime get createdAt => DateTime.fromMillisecondsSinceEpoch(createdAtMs);
+
+  Map<String, Object?> toMap() => {
+        if (id != 0) 'id': id,
+        'bookKey': bookKey,
+        'chapterIndex': chapterIndex,
+        'charOffset': charOffset,
+        'snippet': snippet,
+        'createdAt': createdAtMs,
+      };
+
+  static Bookmark fromMap(Map<String, Object?> map) => Bookmark(
+        id: map['id'] as int,
+        bookKey: map['bookKey'] as String,
+        chapterIndex: map['chapterIndex'] as int,
+        charOffset: map['charOffset'] as int,
+        snippet: (map['snippet'] as String?) ?? '',
+        createdAtMs: map['createdAt'] as int,
       );
 }

@@ -89,6 +89,23 @@ class BookRepository {
         where: 'id = ?', whereArgs: [bookId]);
   }
 
+  /// 更新自定义封面路径（空串表示恢复默认色块封面）。
+  Future<void> setBookCover(int bookId, String coverPath) async {
+    await _db.update('books', {'coverPath': coverPath},
+        where: 'id = ?', whereArgs: [bookId]);
+  }
+
+  /// 编辑书籍标题与作者。
+  Future<void> updateBookMeta(int bookId,
+      {String? title, String? author}) async {
+    final map = <String, Object?>{
+      if (title != null) 'title': title,
+      if (author != null) 'author': author,
+    };
+    if (map.isEmpty) return;
+    await _db.update('books', map, where: 'id = ?', whereArgs: [bookId]);
+  }
+
   Future<Book?> getBook(int id) async {
     final rows =
         await _db.query('books', where: 'id = ?', whereArgs: [id], limit: 1);
@@ -103,8 +120,15 @@ class BookRepository {
 
   Future<void> deleteBook(int id) async {
     await _db.transaction((txn) async {
+      final rows =
+          await txn.query('books', columns: ['bookKey'], where: 'id = ?', whereArgs: [id], limit: 1);
       await txn.delete('chapters', where: 'bookId = ?', whereArgs: [id]);
       await txn.delete('books', where: 'id = ?', whereArgs: [id]);
+      // 级联清理该书签（bookmarks 以 bookKey 关联）
+      final key = rows.isEmpty ? null : rows.first['bookKey'] as String?;
+      if (key != null) {
+        await txn.delete('bookmarks', where: 'bookKey = ?', whereArgs: [key]);
+      }
     });
   }
 

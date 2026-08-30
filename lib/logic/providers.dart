@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 import '../core/constants.dart';
 import '../data/model/models.dart';
 import '../data/repository/book_repository.dart';
+import '../data/repository/bookmark_repository.dart';
 import '../data/repository/sync_repository.dart';
 import 'read_config.dart';
 
@@ -25,6 +26,9 @@ final bookRepositoryProvider = Provider<BookRepository>(
 
 final progressRepositoryProvider = Provider<ProgressRepository>(
     (ref) => ProgressRepository(ref.watch(databaseProvider)));
+
+final bookmarkRepositoryProvider = Provider<BookmarkRepository>(
+    (ref) => BookmarkRepository(ref.watch(databaseProvider)));
 
 final syncRepositoryProvider = Provider<SyncRepository>(
     (ref) => SyncRepository(ref.watch(databaseProvider)));

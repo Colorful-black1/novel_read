@@ -13,6 +13,7 @@ import '../../logic/import_service.dart';
 import '../../logic/providers.dart';
 import '../../logic/read_config.dart';
 import 'reader_menu.dart';
+import 'search_sheet.dart';
 import 'toc_sheet.dart';
 
 class ReaderPage extends ConsumerStatefulWidget {
@@ -27,6 +28,7 @@ class ReaderPage extends ConsumerStatefulWidget {
 class _ReaderPageState extends ConsumerState<ReaderPage> {
   String _content = '';
   List<Chapter> _chapters = [];
+  List<Bookmark> _bookmarks = [];
   bool _loading = true;
   String? _error;
 
@@ -58,6 +60,9 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
       final content = await service.readBookContent(widget.book);
       final chapters =
           await ref.read(bookRepositoryProvider).listChapters(widget.book.id);
+      final bookmarks = await ref
+          .read(bookmarkRepositoryProvider)
+          .listBookmarks(widget.book.bookKey);
 
       // 恢复上次进度
       var chapterIndex = 0;
@@ -73,6 +78,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
       setState(() {
         _content = content;
         _chapters = chapters;
+        _bookmarks = bookmarks;
         _chapterIndex = chapterIndex;
         _pendingCharOffset = charOffset;
         _loading = false;
@@ -188,6 +194,139 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
       _pageIndex = 0;
     });
     _scheduleSave();
+  }
+
+  // ---------------- 书签 / 进度跳转 / 搜索 ----------------
+
+  /// 当前页锚点：本章内首个字符偏移（与进度保存的 charOffset 同语义）
+  int? _anchorOffset() {
+    final pages = _lastPages;
+    if (pages == null || pages.isEmpty || _chapters.isEmpty) return null;
+    final page = pages[_pageIndex.clamp(0, pages.length - 1)];
+    return page.start;
+  }
+
+  bool _isCurrentPageBookmarked() {
+    final anchor = _anchorOffset();
+    if (anchor == null) return false;
+    return _bookmarks.any(
+        (b) => b.chapterIndex == _chapterIndex && b.charOffset == anchor);
+  }
+
+  Future<void> _toggleBookmark() async {
+    final anchor = _anchorOffset();
+    if (anchor == null) return;
+    final repo = ref.read(bookmarkRepositoryProvider);
+    final existing = _bookmarks.where(
+        (b) => b.chapterIndex == _chapterIndex && b.charOffset == anchor);
+    if (existing.isNotEmpty) {
+      for (final b in existing) {
+        await repo.deleteBookmark(b.id);
+      }
+      setState(() {
+        _bookmarks.removeWhere((b) => existing.contains(b));
+      });
+      return;
+    }
+    // 摘录：从页首起 60 字，压平换行便于列表预览
+    final text = _chapterText;
+    final raw =
+        text.substring(anchor.clamp(0, text.length), (anchor + 60).clamp(0, text.length));
+    final snippet =
+        raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final bookmark = Bookmark(
+      bookKey: widget.book.bookKey,
+      chapterIndex: _chapterIndex,
+      charOffset: anchor,
+      snippet: snippet,
+      createdAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    final id = await repo.addBookmark(bookmark);
+    setState(() {
+      _bookmarks.add(Bookmark(
+        id: id,
+        bookKey: bookmark.bookKey,
+        chapterIndex: bookmark.chapterIndex,
+        charOffset: bookmark.charOffset,
+        snippet: bookmark.snippet,
+        createdAtMs: bookmark.createdAtMs,
+      ));
+    });
+  }
+
+  void _jumpToBookmark(Bookmark bookmark) {
+    if (bookmark.chapterIndex < 0 ||
+        bookmark.chapterIndex >= _chapters.length) {
+      return;
+    }
+    setState(() {
+      _chapterIndex = bookmark.chapterIndex;
+      _pendingCharOffset = bookmark.charOffset;
+      _pageIndex = 0;
+    });
+    _scheduleSave();
+  }
+
+  Future<void> _deleteBookmark(Bookmark bookmark) async {
+    await ref.read(bookmarkRepositoryProvider).deleteBookmark(bookmark.id);
+    setState(() {
+      _bookmarks.remove(bookmark);
+    });
+  }
+
+  /// 全书进度滑条落点：按字符偏移定位章节与页
+  void _seekTo(double value) {
+    if (_content.isEmpty || _chapters.isEmpty) return;
+    final global = (value * _content.length).round().clamp(0, _content.length - 1);
+    // 二分找 startOffset <= global 的最后一个章节
+    var idx = 0;
+    var lo = 0;
+    var hi = _chapters.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      if (_chapters[mid].startOffset <= global) {
+        idx = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    final chapter = _chapters[idx];
+    final chapterLen = chapter.endOffset - chapter.startOffset;
+    final local = chapterLen <= 0 ? 0 : (global - chapter.startOffset).clamp(0, chapterLen - 1);
+    setState(() {
+      _chapterIndex = idx;
+      _pendingCharOffset = local;
+      _pageIndex = 0;
+    });
+    _scheduleSave();
+  }
+
+  void _openSearch(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SearchSheet(
+        content: _content,
+        chapters: _chapters,
+        foreground: Color(ref.read(effectiveThemeProvider).foreground),
+        background: Color(ref.read(effectiveThemeProvider).background),
+        onSelect: (chapterIndex, globalOffset) {
+          Navigator.pop(context);
+          final chapter = _chapters[chapterIndex];
+          final chapterLen = chapter.endOffset - chapter.startOffset;
+          setState(() {
+            _chapterIndex = chapterIndex;
+            _pendingCharOffset = chapterLen <= 0
+                ? 0
+                : (globalOffset - chapter.startOffset).clamp(0, chapterLen - 1);
+            _pageIndex = 0;
+          });
+          _scheduleSave();
+        },
+      ),
+    );
   }
 
   double? _viewportHeight;
@@ -339,11 +478,24 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
               chapterCount: _chapters.length,
               pageIndex: _pageIndex,
               pageCount: pages.length,
+              chapters: _chapters,
+              contentLength: _content.length,
+              globalPercent: _content.isEmpty
+                  ? 0.0
+                  : ((_currentChapter.startOffset +
+                              pages[_pageIndex.clamp(0, pages.length - 1)]
+                                  .start) /
+                          _content.length)
+                      .clamp(0.0, 1.0),
+              bookmarked: _isCurrentPageBookmarked(),
               onBack: () {
                 _saveNow();
                 Navigator.of(context).pop();
               },
               onToggleToc: () => _openToc(context, cfg),
+              onSearch: () => _openSearch(context),
+              onToggleBookmark: _toggleBookmark,
+              onSeek: _seekTo,
               onPrevChapter: () =>
                   _goChapter(_chapterIndex - 1, toLastPage: true),
               onNextChapter: () => _goChapter(_chapterIndex + 1),
@@ -478,6 +630,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
       backgroundColor: Colors.transparent,
       builder: (_) => TocSheet(
         chapters: _chapters,
+        bookmarks: _bookmarks,
         currentIndex: _chapterIndex,
         foreground: Color(ref.read(effectiveThemeProvider).foreground),
         background: Color(ref.read(effectiveThemeProvider).background),
@@ -485,6 +638,11 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
           Navigator.pop(context);
           _goChapter(i);
         },
+        onSelectBookmark: (b) {
+          Navigator.pop(context);
+          _jumpToBookmark(b);
+        },
+        onDeleteBookmark: _deleteBookmark,
       ),
     );
   }

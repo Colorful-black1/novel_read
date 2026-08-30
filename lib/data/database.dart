@@ -27,7 +27,7 @@ class AppDatabase {
     final db = await databaseFactory.openDatabase(
       p.join(dir.path, 'novel_read.db'),
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onCreate: createSchema,
         onUpgrade: upgrade,
       ),
@@ -39,7 +39,8 @@ class AppDatabase {
   /// 版本迁移。
   ///
   /// v1→v2：书架自定义排序与分组。
-  /// 回滚说明：SQLite 3.35+ 可 DROP COLUMN，但建议直接备份恢复旧版
+  /// v2→v3：书签表 + 书籍自定义封面列。
+  /// 回滚说明：SQLite 3.35+ 可 DROP COLUMN/TABLE，但建议直接备份恢复旧版
   /// novel_read.db 文件（旧版本应用无法识别新增列）。
   static Future<void> upgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -53,6 +54,11 @@ class AppDatabase {
           sortIndex INTEGER NOT NULL DEFAULT 0
         )
       ''');
+    }
+    if (oldVersion < 3) {
+      await createBookmarks(db);
+      await db.execute(
+          "ALTER TABLE books ADD COLUMN coverPath TEXT NOT NULL DEFAULT ''");
     }
   }
 
@@ -69,7 +75,8 @@ class AppDatabase {
         chapterCount INTEGER NOT NULL,
         addedAt INTEGER NOT NULL,
         sortIndex INTEGER NOT NULL DEFAULT 0,
-        groupId INTEGER
+        groupId INTEGER,
+        coverPath TEXT NOT NULL DEFAULT ''
       )
     ''');
     await db.execute('''
@@ -91,6 +98,7 @@ class AppDatabase {
     ''');
     await db.execute(
         'CREATE INDEX idx_chapters_book ON chapters(bookId, idx)');
+    await createBookmarks(db);
     await db.execute('''
       CREATE TABLE progress (
         bookKey TEXT PRIMARY KEY,
@@ -129,5 +137,21 @@ class AppDatabase {
         savedAt INTEGER NOT NULL
       )
     ''');
+  }
+
+  /// 书签表（建表与 v2→v3 迁移共用）。
+  static Future<void> createBookmarks(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS bookmarks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bookKey TEXT NOT NULL,
+        chapterIndex INTEGER NOT NULL,
+        charOffset INTEGER NOT NULL,
+        snippet TEXT NOT NULL DEFAULT '',
+        createdAt INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_bookmarks_book ON bookmarks(bookKey, chapterIndex)');
   }
 }

@@ -19,8 +19,15 @@ class ReaderMenu extends ConsumerWidget {
   final int chapterCount;
   final int pageIndex;
   final int pageCount;
+  final List<Chapter> chapters;
+  final int contentLength;
+  final double globalPercent;
+  final bool bookmarked;
   final VoidCallback onBack;
   final VoidCallback onToggleToc;
+  final VoidCallback onSearch;
+  final VoidCallback onToggleBookmark;
+  final ValueChanged<double> onSeek;
   final VoidCallback onPrevChapter;
   final VoidCallback onNextChapter;
   final VoidCallback onOpenSettings;
@@ -33,8 +40,15 @@ class ReaderMenu extends ConsumerWidget {
     required this.chapterCount,
     required this.pageIndex,
     required this.pageCount,
+    required this.chapters,
+    required this.contentLength,
+    required this.globalPercent,
+    required this.bookmarked,
     required this.onBack,
     required this.onToggleToc,
+    required this.onSearch,
+    required this.onToggleBookmark,
+    required this.onSeek,
     required this.onPrevChapter,
     required this.onNextChapter,
     required this.onOpenSettings,
@@ -71,6 +85,12 @@ class ReaderMenu extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.white),
                     ),
+                  ),
+                  IconButton(
+                    tooltip: '搜索',
+                    color: Colors.white,
+                    onPressed: visible ? onSearch : null,
+                    icon: const Icon(Icons.search),
                   ),
                   IconButton(
                     tooltip: '目录',
@@ -123,8 +143,25 @@ class ReaderMenu extends ConsumerWidget {
                       ),
                     ],
                   ),
+                  // 全书进度跳转滑条（拖动中实时预览目标章节，松手跳转）
+                  _ProgressSlider(
+                    chapters: chapters,
+                    contentLength: contentLength,
+                    globalPercent: globalPercent,
+                    enabled: visible,
+                    color: Colors.white,
+                    onSeek: onSeek,
+                  ),
                   Row(
                     children: [
+                      IconButton(
+                        tooltip: bookmarked ? '移除书签' : '添加书签',
+                        color: Colors.white,
+                        onPressed: visible ? onToggleBookmark : null,
+                        icon: Icon(bookmarked
+                            ? Icons.bookmark
+                            : Icons.bookmark_border),
+                      ),
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(
@@ -461,6 +498,100 @@ class _SettingSwitch extends StatelessWidget {
       children: [
         Text(label, style: TextStyle(color: color, fontSize: 13)),
         Switch(value: value, onChanged: onChanged),
+      ],
+    );
+  }
+}
+
+/// 全书进度滑条：拖动中按字符偏移映射章节（只查偏移不触发分页），
+/// 松手后通过 onSeek 跳转（由阅读页定位章节 + 页内偏移）。
+class _ProgressSlider extends StatefulWidget {
+  final List<Chapter> chapters;
+  final int contentLength;
+  final double globalPercent;
+  final bool enabled;
+  final Color color;
+  final ValueChanged<double> onSeek;
+
+  const _ProgressSlider({
+    required this.chapters,
+    required this.contentLength,
+    required this.globalPercent,
+    required this.enabled,
+    required this.color,
+    required this.onSeek,
+  });
+
+  @override
+  State<_ProgressSlider> createState() => _ProgressSliderState();
+}
+
+class _ProgressSliderState extends State<_ProgressSlider> {
+  /// 拖动中的临时值，null 表示未在拖动
+  double? _dragValue;
+
+  /// 按全书比例值解析目标章节（章节按 startOffset 有序）
+  Chapter? _chapterAt(double value) {
+    if (widget.chapters.isEmpty || widget.contentLength <= 0) return null;
+    final global = (value * widget.contentLength).round().clamp(0, widget.contentLength - 1);
+    var idx = 0;
+    var lo = 0;
+    var hi = widget.chapters.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      if (widget.chapters[mid].startOffset <= global) {
+        idx = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return widget.chapters[idx];
+  }
+
+  String _label(double value) {
+    final chapter = _chapterAt(value);
+    if (chapter == null) return '';
+    final percent = (value * 100).toStringAsFixed(1);
+    return '第${widget.chapters.indexOf(chapter) + 1}章 ${chapter.title}  ·  $percent%';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final value = _dragValue ?? widget.globalPercent;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 2,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+          ),
+          child: Slider(
+            value: value.clamp(0.0, 1.0),
+            onChanged: widget.enabled && widget.chapters.isNotEmpty
+                ? (v) => setState(() => _dragValue = v)
+                : null,
+            onChangeEnd: widget.enabled && widget.chapters.isNotEmpty
+                ? (v) {
+                    widget.onSeek(v);
+                    setState(() => _dragValue = null);
+                  }
+                : null,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Text(
+            _dragValue == null
+                ? '全书 ${(widget.globalPercent * 100).toStringAsFixed(1)}%'
+                : _label(_dragValue!),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: widget.color.withValues(alpha: 0.7), fontSize: 12),
+          ),
+        ),
       ],
     );
   }

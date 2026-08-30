@@ -10,6 +10,11 @@ import 'dart:convert';
 /// 注意：枚举按 index 序列化，只能往后追加，不能调整已有顺序。
 enum PageMode { scroll, horizontal, cover }
 
+/// 书架排序模式
+///
+/// 注意：枚举按 index 序列化，只能往后追加，不能调整已有顺序。
+enum BookshelfSort { manual, recentRead, addedTime, title }
+
 class ReadConfig {
   final double fontSize;
   final double lineSpacing; // 行距倍数
@@ -22,6 +27,7 @@ class ReadConfig {
   final bool blurOnFocusLost; // PC：失焦自动最小化
   final String bossHotkey; // PC：老板键组合，如 'Alt+H'
   final bool pinned; // PC：窗口钉住置顶（置顶时老板键失效）
+  final BookshelfSort bookshelfSort; // 书架排序模式
 
   /// 软件背景预设索引：0 白 / 1 灰 / 2 黑
   final int appBgPreset;
@@ -43,6 +49,7 @@ class ReadConfig {
     this.pinned = false,
     this.appBgPreset = 0,
     this.appBgImage = '',
+    this.bookshelfSort = BookshelfSort.manual,
   });
 
   double get effectiveLineHeight => fontSize * lineSpacing;
@@ -61,6 +68,7 @@ class ReadConfig {
     bool? pinned,
     int? appBgPreset,
     String? appBgImage,
+    BookshelfSort? bookshelfSort,
   }) {
     return ReadConfig(
       fontSize: fontSize ?? this.fontSize,
@@ -76,6 +84,7 @@ class ReadConfig {
       pinned: pinned ?? this.pinned,
       appBgPreset: appBgPreset ?? this.appBgPreset,
       appBgImage: appBgImage ?? this.appBgImage,
+      bookshelfSort: bookshelfSort ?? this.bookshelfSort,
     );
   }
 
@@ -93,6 +102,7 @@ class ReadConfig {
         'pinned': pinned,
         'appBgPreset': appBgPreset,
         'appBgImage': appBgImage,
+        'bookshelfSort': bookshelfSort.index,
       };
 
   static ReadConfig fromMap(Map<String, Object?> map) => ReadConfig(
@@ -109,6 +119,8 @@ class ReadConfig {
         pinned: (map['pinned'] as bool?) ?? false,
         appBgPreset: (map['appBgPreset'] as num?)?.toInt() ?? 0,
         appBgImage: (map['appBgImage'] as String?) ?? '',
+        bookshelfSort: BookshelfSort
+            .values[(map['bookshelfSort'] as num?)?.toInt() ?? 0],
       );
 
   String toJson() => jsonEncode(toMap());

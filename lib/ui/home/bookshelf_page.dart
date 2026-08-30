@@ -1,14 +1,22 @@
-/// 书架页：书籍网格展示、TXT 导入、编辑模式（拖拽排序 / 批量删除 / 移动分组）、分组筛选。
+/// 书架页：书籍网格展示、TXT 导入、编辑模式（拖拽排序 / 批量删除 / 移动分组）、分组筛选、
+/// 搜索、排序模式、长按操作菜单（详情 / 封面）。
 library;
 
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/constants.dart';
 import '../../data/model/models.dart';
 import '../../logic/import_service.dart';
 import '../../logic/providers.dart';
+import '../../logic/read_config.dart';
 import '../reader/reader_page.dart';
+import 'book_detail_sheet.dart';
 
 class BookshelfPage extends ConsumerStatefulWidget {
   const BookshelfPage({super.key});
@@ -26,6 +34,24 @@ class _BookshelfPageState extends ConsumerState<BookshelfPage> {
 
   // 当前筛选的分组 id，null = 全部
   int? _filterGroupId;
+
+  // 搜索状态
+  bool _searching = false;
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  static const _sortLabels = {
+    BookshelfSort.manual: '手动排序',
+    BookshelfSort.recentRead: '最近阅读',
+    BookshelfSort.addedTime: '添加时间',
+    BookshelfSort.title: '书名',
+  };
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   Future<void> _import() async {
     if (_importing) return;
@@ -84,12 +110,18 @@ class _BookshelfPageState extends ConsumerState<BookshelfPage> {
   }
 
   Future<void> _deleteSelected() async {
-    if (_selectedIds.isEmpty) return;
+    await _deleteBooks(_selectedIds.toList());
+    if (mounted) setState(_selectedIds.clear);
+  }
+
+  /// 删除书籍（确认弹窗，不删磁盘上的 TXT 文件），书签随之级联清理。
+  Future<void> _deleteBooks(List<int> ids) async {
+    if (ids.isEmpty) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除书籍'),
-        content: Text('确定从书架移除选中的 ${_selectedIds.length} 本书吗？\n（不会删除磁盘上的 TXT 文件）'),
+        content: Text('确定从书架移除选中的 ${ids.length} 本书吗？\n（不会删除磁盘上的 TXT 文件）'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -102,15 +134,19 @@ class _BookshelfPageState extends ConsumerState<BookshelfPage> {
     );
     if (confirmed != true) return;
     final repo = ref.read(bookRepositoryProvider);
-    for (final id in _selectedIds) {
+    for (final id in ids) {
       await repo.deleteBook(id);
     }
-    setState(_selectedIds.clear);
     ref.invalidate(bookListProvider);
   }
 
   Future<void> _moveSelectedToGroup() async {
-    if (_selectedIds.isEmpty) return;
+    await _moveBooksToGroup(_selectedIds.toList());
+  }
+
+  /// 把指定书籍移动到分组（弹层选择），id == -1 表示「移出分组」。
+  Future<void> _moveBooksToGroup(List<int> ids) async {
+    if (ids.isEmpty) return;
     final groups = ref.read(bookGroupsProvider).value ?? const <BookGroup>[];
     // id == -1 表示「移出分组」；null 表示弹层被直接关闭，不做事
     const removeFromGroup = BookGroup(id: -1, name: '');
@@ -153,12 +189,158 @@ class _BookshelfPageState extends ConsumerState<BookshelfPage> {
     );
     if (target == null) return;
     final repo = ref.read(bookRepositoryProvider);
-    for (final id in _selectedIds) {
+    for (final id in ids) {
       await repo.setBookGroup(id, target.id == -1 ? null : target.id);
     }
     ref
       ..invalidate(bookListProvider)
       ..invalidate(bookGroupsProvider);
+  }
+
+  // ---- 单本书操作（长按菜单）----
+
+  Future<void> _showBookActions(BookWithProgress item) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: const Text('详情'),
+              onTap: () => Navigator.pop(ctx, 'detail'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('更换封面'),
+              onTap: () => Navigator.pop(ctx, 'cover'),
+            ),
+            if (item.book.coverPath.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.image_not_supported_outlined),
+                title: const Text('移除封面'),
+                onTap: () => Navigator.pop(ctx, 'removeCover'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_move_outlined),
+              title: const Text('移动至分组'),
+              onTap: () => Navigator.pop(ctx, 'move'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('删除'),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'detail':
+        _showDetail(item);
+        break;
+      case 'cover':
+        await _pickCover(item.book);
+        break;
+      case 'removeCover':
+        await _removeCover(item.book);
+        break;
+      case 'move':
+        await _moveBooksToGroup([item.book.id]);
+        break;
+      case 'delete':
+        await _deleteBooks([item.book.id]);
+        break;
+    }
+  }
+
+  void _showDetail(BookWithProgress item) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BookDetailSheet(
+        item: item,
+        onEditSaved: () => ref.invalidate(bookListProvider),
+      ),
+    );
+  }
+
+  /// 选择封面图：拷贝到应用 covers 目录，避免原路径（尤其 Android 临时目录）失效。
+  Future<void> _pickCover(Book book) async {
+    try {
+      final result = await FilePicker.pickFiles(type: FileType.image);
+      final src = result.isEmpty ? null : result.single.path;
+      if (src == null) return;
+      final support = await getApplicationSupportDirectory();
+      final dir = Directory(p.join(support.path, 'covers'));
+      await dir.create(recursive: true);
+      final dest = p.join(dir.path,
+          'cover_${book.id}_${DateTime.now().millisecondsSinceEpoch}${p.extension(src)}');
+      await _deleteCoverFileIfManaged(book.coverPath);
+      await File(src).copy(dest);
+      await ref.read(bookRepositoryProvider).setBookCover(book.id, dest);
+      ref.invalidate(bookListProvider);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('封面设置失败：$e')));
+      }
+    }
+  }
+
+  Future<void> _removeCover(Book book) async {
+    await _deleteCoverFileIfManaged(book.coverPath);
+    await ref.read(bookRepositoryProvider).setBookCover(book.id, '');
+    ref.invalidate(bookListProvider);
+  }
+
+  /// 删除旧封面文件（仅限本应用拷贝的 covers 目录内文件）。
+  Future<void> _deleteCoverFileIfManaged(String coverPath) async {
+    if (coverPath.isEmpty) return;
+    final support = await getApplicationSupportDirectory();
+    final coversDir = p.canonicalize(p.join(support.path, 'covers'));
+    if (p.canonicalize(coverPath).startsWith(coversDir)) {
+      try {
+        await File(coverPath).delete();
+      } catch (_) {}
+    }
+  }
+
+  // ---- 筛选 / 搜索 / 排序 ----
+
+  /// 应用分组筛选、搜索过滤与排序模式（编辑模式下固定按手动顺序展示）。
+  List<BookWithProgress> _applyFilterSort(List<BookWithProgress> books) {
+    var visible = _filterGroupId == null
+        ? books
+        : books.where((b) => b.book.groupId == _filterGroupId).toList();
+    final q = _query.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      visible = visible
+          .where((b) =>
+              b.book.title.toLowerCase().contains(q) ||
+              b.book.author.toLowerCase().contains(q))
+          .toList();
+    }
+    if (_editing) return visible;
+    final sort = ref.watch(readConfigProvider).bookshelfSort;
+    switch (sort) {
+      case BookshelfSort.recentRead:
+        visible.sort((a, b) => (b.progress?.updatedAtMs ?? 0)
+            .compareTo(a.progress?.updatedAtMs ?? 0));
+        break;
+      case BookshelfSort.addedTime:
+        visible.sort((a, b) => b.book.addedAt.compareTo(a.book.addedAt));
+        break;
+      case BookshelfSort.title:
+        visible.sort((a, b) => a.book.title.compareTo(b.book.title));
+        break;
+      case BookshelfSort.manual:
+        break;
+    }
+    return visible;
   }
 
   // ---- 分组管理 ----
@@ -265,14 +447,13 @@ class _BookshelfPageState extends ConsumerState<BookshelfPage> {
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('加载失败：$e')),
               data: (books) {
-                final visible = _filterGroupId == null
-                    ? books
-                    : books
-                        .where((b) => b.book.groupId == _filterGroupId)
-                        .toList();
+                final visible = _applyFilterSort(books);
                 if (books.isEmpty) return _buildEmpty();
                 if (visible.isEmpty) {
-                  return const Center(child: Text('该分组还没有书籍'));
+                  return Center(
+                      child: Text(_query.trim().isEmpty
+                          ? '该分组还没有书籍'
+                          : '没有匹配「${_query.trim()}」的书籍'));
                 }
                 return _editing
                     ? _buildEditGrid(visible)
@@ -290,8 +471,36 @@ class _BookshelfPageState extends ConsumerState<BookshelfPage> {
     final appNameStyle = Theme.of(context).textTheme.titleLarge;
     return AppBar(
       backgroundColor: Colors.transparent,
-      title: Text(appName, style: appNameStyle),
+      leading: _searching
+          ? IconButton(
+              tooltip: '取消搜索',
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => setState(() {
+                _searching = false;
+                _query = '';
+                _searchController.clear();
+              }),
+            )
+          : null,
+      title: _searching
+          ? TextField(
+              controller: _searchController,
+              autofocus: true,
+              onChanged: (v) => setState(() => _query = v),
+              decoration: const InputDecoration(
+                hintText: '搜索书名 / 作者',
+                border: InputBorder.none,
+              ),
+            )
+          : Text(appName, style: appNameStyle),
       actions: [
+        if (!_searching)
+          IconButton(
+            tooltip: '搜索',
+            onPressed: () => setState(() => _searching = true),
+            icon: const Icon(Icons.search),
+          ),
+        _buildSortButton(),
         IconButton(
           tooltip: '编辑',
           onPressed: () => setState(() => _editing = true),
@@ -307,6 +516,37 @@ class _BookshelfPageState extends ConsumerState<BookshelfPage> {
                   child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.file_upload_outlined),
         ),
+      ],
+    );
+  }
+
+  /// 排序模式选择菜单
+  Widget _buildSortButton() {
+    final current = ref.watch(readConfigProvider).bookshelfSort;
+    return PopupMenuButton<BookshelfSort>(
+      tooltip: '排序方式',
+      icon: const Icon(Icons.sort),
+      initialValue: current,
+      onSelected: (s) => ref
+          .read(readConfigProvider.notifier)
+          .update((c) => c.copyWith(bookshelfSort: s)),
+      itemBuilder: (ctx) => [
+        for (final entry in _sortLabels.entries)
+          PopupMenuItem(
+            value: entry.key,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 18,
+                  child: entry.key == current
+                      ? const Icon(Icons.check, size: 18)
+                      : null,
+                ),
+                const SizedBox(width: 8),
+                Text(entry.value),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -407,6 +647,7 @@ class _BookshelfPageState extends ConsumerState<BookshelfPage> {
         return _BookCard(
           item: item,
           onTap: () => _openReader(item),
+          onLongPress: () => _showBookActions(item),
         );
       },
     );
@@ -537,6 +778,7 @@ class _DragFeedbackCard extends StatelessWidget {
 class _BookCard extends StatelessWidget {
   final BookWithProgress item;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final bool selected;
   final bool showSelection;
   final bool highlighted;
@@ -544,6 +786,7 @@ class _BookCard extends StatelessWidget {
   const _BookCard({
     required this.item,
     required this.onTap,
+    this.onLongPress,
     this.selected = false,
     this.showSelection = false,
     this.highlighted = false,
@@ -580,18 +823,21 @@ class _BookCard extends StatelessWidget {
             ),
             padding: const EdgeInsets.all(8),
             alignment: Alignment.center,
-            child: Text(
-              item.book.title,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                height: 1.4,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            child: item.book.coverPath.isNotEmpty
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LayoutBuilder(builder: (ctx, box) {
+                      // 铺满色块区域的封面图，加载失败回退为标题色块
+                      return Image.file(
+                        File(item.book.coverPath),
+                        fit: BoxFit.cover,
+                        width: box.maxWidth,
+                        height: box.maxHeight,
+                        errorBuilder: (_, __, ___) => _titleFallback(),
+                      );
+                    }),
+                  )
+                : _titleFallback(),
           ),
         ),
         Padding(
@@ -619,6 +865,7 @@ class _BookCard extends StatelessWidget {
     if (!showSelection) {
       return InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(6),
         child: cover,
       );
@@ -627,6 +874,7 @@ class _BookCard extends StatelessWidget {
     // 编辑模式：外框高亮 + 左上角选中圈
     return InkWell(
       onTap: onTap,
+      onLongPress: onLongPress,
       borderRadius: BorderRadius.circular(6),
       child: Stack(
         clipBehavior: Clip.none,
@@ -673,6 +921,22 @@ class _BookCard extends StatelessWidget {
             child: cover,
           ),
         ],
+      ),
+    );
+  }
+
+  /// 默认封面：色块上的标题文字
+  Widget _titleFallback() {
+    return Text(
+      item.book.title,
+      maxLines: 4,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.center,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 13,
+        height: 1.4,
+        fontWeight: FontWeight.w600,
       ),
     );
   }
