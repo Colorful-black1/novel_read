@@ -6,7 +6,9 @@ library;
 import 'dart:convert';
 
 /// 翻页模式
-enum PageMode { scroll, horizontal }
+///
+/// 注意：枚举按 index 序列化，只能往后追加，不能调整已有顺序。
+enum PageMode { scroll, horizontal, cover }
 
 class ReadConfig {
   final double fontSize;
@@ -17,7 +19,9 @@ class ReadConfig {
   final PageMode pageMode;
   final double brightnessMask; // 0~0.6 亮度遮罩透明度
   final bool disguiseEnabled; // PC：老板键切换到伪装皮肤
-  final bool blurOnFocusLost; // PC：失焦自动模糊
+  final bool blurOnFocusLost; // PC：失焦自动最小化
+  final String bossHotkey; // PC：老板键组合，如 'Alt+H'
+  final bool pinned; // PC：窗口钉住置顶（置顶时老板键失效）
 
   const ReadConfig({
     this.fontSize = 19,
@@ -29,6 +33,8 @@ class ReadConfig {
     this.brightnessMask = 0,
     this.disguiseEnabled = true,
     this.blurOnFocusLost = true,
+    this.bossHotkey = 'Alt+H',
+    this.pinned = false,
   });
 
   double get effectiveLineHeight => fontSize * lineSpacing;
@@ -43,6 +49,8 @@ class ReadConfig {
     double? brightnessMask,
     bool? disguiseEnabled,
     bool? blurOnFocusLost,
+    String? bossHotkey,
+    bool? pinned,
   }) {
     return ReadConfig(
       fontSize: fontSize ?? this.fontSize,
@@ -54,6 +62,8 @@ class ReadConfig {
       brightnessMask: brightnessMask ?? this.brightnessMask,
       disguiseEnabled: disguiseEnabled ?? this.disguiseEnabled,
       blurOnFocusLost: blurOnFocusLost ?? this.blurOnFocusLost,
+      bossHotkey: bossHotkey ?? this.bossHotkey,
+      pinned: pinned ?? this.pinned,
     );
   }
 
@@ -67,6 +77,8 @@ class ReadConfig {
         'brightnessMask': brightnessMask,
         'disguiseEnabled': disguiseEnabled,
         'blurOnFocusLost': blurOnFocusLost,
+        'bossHotkey': bossHotkey,
+        'pinned': pinned,
       };
 
   static ReadConfig fromMap(Map<String, Object?> map) => ReadConfig(
@@ -79,6 +91,8 @@ class ReadConfig {
         brightnessMask: (map['brightnessMask'] as num?)?.toDouble() ?? 0,
         disguiseEnabled: (map['disguiseEnabled'] as bool?) ?? true,
         blurOnFocusLost: (map['blurOnFocusLost'] as bool?) ?? true,
+        bossHotkey: (map['bossHotkey'] as String?) ?? 'Alt+H',
+        pinned: (map['pinned'] as bool?) ?? false,
       );
 
   String toJson() => jsonEncode(toMap());

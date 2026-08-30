@@ -1,6 +1,8 @@
 /// 书架页：书籍网格展示、TXT 导入入口、删除管理。
 library;
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,6 +10,7 @@ import '../../core/constants.dart';
 import '../../logic/import_service.dart';
 import '../../logic/providers.dart';
 import '../reader/reader_page.dart';
+import 'hotkey_settings_dialog.dart';
 
 class BookshelfPage extends ConsumerStatefulWidget {
   const BookshelfPage({super.key});
@@ -75,6 +78,14 @@ class _BookshelfPageState extends ConsumerState<BookshelfPage> {
       appBar: AppBar(
         title: Text(appName, style: appNameStyle),
         actions: [
+          // PC：老板键快捷键设置入口
+          if (Platform.isWindows)
+            IconButton(
+              tooltip: '老板键快捷键设置',
+              onPressed: () =>
+                  showDialog<void>(context: context, builder: (_) => const HotkeySettingsDialog()),
+              icon: const Icon(Icons.keyboard_alt_outlined),
+            ),
           IconButton(
             tooltip: '导入 TXT',
             onPressed: _importing ? null : _import,

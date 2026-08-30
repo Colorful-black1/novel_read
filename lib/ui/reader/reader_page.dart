@@ -2,8 +2,6 @@
 library;
 
 import 'dart:async';
-import 'dart:io';
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,7 +12,6 @@ import '../../data/model/models.dart';
 import '../../logic/import_service.dart';
 import '../../logic/providers.dart';
 import '../../logic/read_config.dart';
-import '../../services/boss_mode_service.dart';
 import 'reader_menu.dart';
 import 'toc_sheet.dart';
 
@@ -165,7 +162,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
   void _jumpToPage(int index, List<PageRange> pages) {
     index = index.clamp(0, pages.length - 1);
     final cfg = ref.read(readConfigProvider);
-    if (cfg.pageMode == PageMode.horizontal) {
+    if (cfg.pageMode != PageMode.scroll) {
       _pageController?.animateToPage(
         index,
         duration: const Duration(milliseconds: 240),
@@ -194,6 +191,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
   }
 
   double? _viewportHeight;
+  double? _viewportWidth;
 
   void _onTapZone(TapUpDetails d, BoxConstraints c, List<PageRange> pages) {
     final x = d.localPosition.dx;
@@ -215,10 +213,6 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
     final bg = Color(theme.background);
     final fg = Color(theme.foreground);
     final style = _bodyStyle(cfg, theme);
-    // PC：失焦自动模糊
-    final blurred = Platform.isWindows &&
-        cfg.blurOnFocusLost &&
-        ref.watch(windowBlurredProvider);
 
     if (_loading) {
       return Scaffold(
@@ -249,6 +243,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
       backgroundColor: bg,
       body: LayoutBuilder(builder: (ctx, constraints) {
         _viewportHeight = constraints.maxHeight;
+        _viewportWidth = constraints.maxWidth;
         // 分页缓存：章节/字号/行距/字体/视口 任一变化才重排。
         // 排版是 UI 线程上的重操作，翻页/呼出菜单/失焦等普通重建必须复用缓存，
         // 否则大章节每次 setState 都会重新分页导致明显卡顿。
@@ -302,7 +297,9 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
             Positioned.fill(
               child: cfg.pageMode == PageMode.horizontal
                   ? _buildPageView(pages, style, bg)
-                  : _buildScrollList(pages, style, bg),
+                  : cfg.pageMode == PageMode.cover
+                      ? _buildCoverView(pages, style, bg)
+                      : _buildScrollList(pages, style, bg),
             ),
             // 亮度遮罩（最上层内容，不拦截手势）
             if (cfg.brightnessMask > 0)
@@ -355,15 +352,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
           ],
         );
 
-        // PC：窗口失焦时整页模糊
-        if (blurred) {
-          return ClipRect(
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-              child: contentStack,
-            ),
-          );
-        }
+        // PC：失焦自动最小化由 BossModeService.onWindowBlur 处理
         return contentStack;
       }),
     );
@@ -394,12 +383,66 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
 
   Widget _buildPageView(List<PageRange> pages, TextStyle style, Color bg) {
     final controller = _ensurePageController();
+    // Key 必须随章节变化：Flutter 的 Scrollable 在只换 controller 时会复用旧
+    // ScrollPosition（新控制器的 initialPage 不生效，画面停留在上一章页位），
+    // 只有让 Scrollable 元素整体重建，initialPage 才会真正应用。
     return PageView.builder(
+      key: ValueKey<int>(_chapterIndex),
       controller: controller,
       itemCount: pages.length,
       onPageChanged: (i) => _onPageChanged(i, pages),
       itemBuilder: (ctx, i) =>
           _pageContent(pages[i], style, bg, _viewportHeight ?? 800),
+    );
+  }
+
+  /// 覆盖翻页：当前页保持不动，新页带阴影从右侧滑入盖住旧页。
+  ///
+  /// 原理：PageView 内所有页随视口一起平移，对视口左侧的页（d > i，d 为当前
+  /// 滚动位置）反向平移 (d-i)*页宽 抵消视口移动，视觉上保持静止；右侧的页
+  /// （滑入页）不做变换，自然滑入。仅相邻一页参与动画，左侧更远的页 clamp 后
+  /// 仍位于屏幕外，不会穿帮。
+  Widget _buildCoverView(List<PageRange> pages, TextStyle style, Color bg) {
+    final controller = _ensurePageController();
+    return PageView.builder(
+      key: ValueKey<int>(_chapterIndex),
+      controller: controller,
+      itemCount: pages.length,
+      onPageChanged: (i) => _onPageChanged(i, pages),
+      itemBuilder: (ctx, i) {
+        final width = _viewportWidth ?? 800;
+        final height = _viewportHeight ?? 800;
+        return AnimatedBuilder(
+          animation: controller,
+          builder: (ctx, _) {
+            final d = controller.hasClients &&
+                    controller.position.hasContentDimensions
+                ? controller.position.pixels / width
+                : i.toDouble();
+            // 本页在视口左侧（被覆盖的旧页）：反向平移保持静止
+            final coverOffset = (d - i).clamp(0.0, 1.0) * width;
+            // 本页作为上层滑入页的进度（0~1），用于阴影强度
+            final t = (i - d).clamp(0.0, 1.0);
+            return Transform.translate(
+              offset: Offset(coverOffset, 0),
+              child: Container(
+                decoration: BoxDecoration(
+                  boxShadow: t > 0
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3 * t),
+                            blurRadius: 24 * t,
+                            offset: Offset(-6 * t, 0),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: _pageContent(pages[i], style, bg, height),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -416,6 +459,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
         return false;
       },
       child: ListView.builder(
+        key: ValueKey<int>(_chapterIndex),
         controller: controller,
         itemCount: pages.length,
         itemExtent: pageHeight,

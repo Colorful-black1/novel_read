@@ -1,6 +1,7 @@
 /// 同步页：PC 端开启服务并展示二维码，手机端扫码配对与一键同步。
 library;
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
@@ -25,6 +26,7 @@ class SyncPage extends ConsumerStatefulWidget {
 class _SyncPageState extends ConsumerState<SyncPage> {
   SyncServer? _server;
   List<String> _addresses = [];
+  String? _selectedAddress;
   String? _pairCode;
   bool _starting = false;
 
@@ -66,6 +68,7 @@ class _SyncPageState extends ConsumerState<SyncPage> {
       setState(() {
         _server = server;
         _addresses = addresses;
+        _selectedAddress = addresses.isNotEmpty ? addresses.first : null;
         _pairCode = server.currentPairCode;
       });
     } catch (e) {
@@ -107,6 +110,11 @@ class _SyncPageState extends ConsumerState<SyncPage> {
         _client = client;
         _lastMessage = '配对成功：${resp.serverName}';
       });
+    } on TimeoutException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('连接超时：请确认手机与电脑在同一局域网，'
+              '且电脑防火墙允许 9876 端口；也可改用「手动输入」填写电脑 IP')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -264,14 +272,26 @@ class _SyncPageState extends ConsumerState<SyncPage> {
               const Text('开启后，手机在同一局域网内扫码即可配对并同步阅读进度。')
             else ...[
               Text('本机地址：${_addresses.join('  /  ')}'),
+              // 多网卡时允许手动选择编入二维码的地址
+              if (_addresses.length > 1)
+                DropdownButton<String>(
+                  value: _selectedAddress,
+                  isExpanded: true,
+                  hint: const Text('选择编入二维码的地址'),
+                  items: [
+                    for (final a in _addresses)
+                      DropdownMenuItem(value: a, child: Text(a)),
+                  ],
+                  onChanged: (v) => setState(() => _selectedAddress = v),
+                ),
               const SizedBox(height: 12),
-              if (_addresses.isNotEmpty && _pairCode != null)
+              if (_selectedAddress != null && _pairCode != null)
                 Center(
                   child: Column(
                     children: [
                       QrImageView(
                         data: PairQrContent(
-                          host: _addresses.first,
+                          host: _selectedAddress!,
                           port: syncPort,
                           code: _pairCode!,
                         ).encode(),

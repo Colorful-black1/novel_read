@@ -43,6 +43,18 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: 5.0.0
+  # 应用图标一键生成（assets/icon.png → Android/Windows 全套），见 tools/logo_gen.md
+  flutter_launcher_icons: 0.14.4
+
+flutter_launcher_icons:
+  image_path: "assets/icon.png"
+  android: true
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon.png"
+    icon_size: 48
 
 flutter:
   uses-material-design: true

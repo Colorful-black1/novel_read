@@ -10,8 +10,9 @@ import '../../core/constants.dart';
 import '../../data/model/models.dart';
 import '../../logic/providers.dart';
 import '../../logic/read_config.dart';
+import '../../services/boss_mode_service.dart';
 
-class ReaderMenu extends StatelessWidget {
+class ReaderMenu extends ConsumerWidget {
   final bool visible;
   final Book book;
   final int chapterIndex;
@@ -40,7 +41,9 @@ class ReaderMenu extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cfg = ref.watch(readConfigProvider);
+    final notifier = ref.read(readConfigProvider.notifier);
     return IgnorePointer(
       ignoring: !visible,
       child: AnimatedOpacity(
@@ -75,6 +78,23 @@ class ReaderMenu extends StatelessWidget {
                     onPressed: visible ? onToggleToc : null,
                     icon: const Icon(Icons.menu_book_outlined),
                   ),
+                  // PC：窗口钉住置顶（钉住时老板键失效）
+                  if (Platform.isWindows)
+                    IconButton(
+                      tooltip: cfg.pinned ? '取消钉住' : '钉住窗口（置顶，老板键失效）',
+                      color: Colors.white,
+                      onPressed: visible
+                          ? () {
+                              notifier
+                                  .update((c) => c.copyWith(pinned: !c.pinned));
+                              BossModeService.instance
+                                  .setPinned(!cfg.pinned);
+                            }
+                          : null,
+                      icon: Icon(cfg.pinned
+                          ? Icons.push_pin
+                          : Icons.push_pin_outlined),
+                    ),
                 ],
               ),
             ),
@@ -217,6 +237,9 @@ class ReaderSettingsPanel extends ConsumerWidget {
                         ButtonSegment(
                             value: PageMode.horizontal,
                             label: Text('左右翻页')),
+                        ButtonSegment(
+                            value: PageMode.cover,
+                            label: Text('覆盖')),
                       ],
                       selected: {cfg.pageMode},
                       onSelectionChanged: (s) =>
@@ -288,13 +311,13 @@ class ReaderSettingsPanel extends ConsumerWidget {
             if (Platform.isWindows) ...[
               const Divider(height: 1),
               _SettingSwitch(
-                label: '老板键切换伪装皮肤（Alt+Q）',
+                label: '老板键切换伪装皮肤（${cfg.bossHotkey}）',
                 value: cfg.disguiseEnabled,
                 color: fg,
                 onChanged: (v) => change((c) => c.copyWith(disguiseEnabled: v)),
               ),
               _SettingSwitch(
-                label: '失去焦点时自动模糊',
+                label: '失去焦点时自动最小化',
                 value: cfg.blurOnFocusLost,
                 color: fg,
                 onChanged: (v) => change((c) => c.copyWith(blurOnFocusLost: v)),
@@ -365,15 +388,31 @@ class _SliderRow extends StatelessWidget {
     required this.onChanged,
   });
 
+  /// 单步增量（与 Slider divisions 对齐）
+  double get _step => (max - min) / divisions;
+
+  /// 步进后量化到档位，避免浮点误差累积
+  double _stepped(int direction) {
+    final steps = ((value - min) / _step).round() + direction;
+    return (min + steps * _step).clamp(min, max);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: Row(
         children: [
           SizedBox(
               width: 40,
               child: Text(label, style: TextStyle(color: color))),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            color: color,
+            onPressed: value > min ? () => onChanged(_stepped(-1)) : null,
+            icon: const Icon(Icons.remove_circle_outline, size: 20),
+          ),
           Expanded(
             child: Slider(
               value: value.clamp(min, max),
@@ -383,6 +422,13 @@ class _SliderRow extends StatelessWidget {
               activeColor: Colors.blueAccent,
               onChanged: onChanged,
             ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            color: color,
+            onPressed: value < max ? () => onChanged(_stepped(1)) : null,
+            icon: const Icon(Icons.add_circle_outline, size: 20),
           ),
           SizedBox(
               width: 40,

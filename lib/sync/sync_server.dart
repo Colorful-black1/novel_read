@@ -170,16 +170,44 @@ class SyncServer {
   }
 }
 
+/// 常见虚拟网卡/VPN 适配器关键字（二维码编入这些地址手机连不上）
+const _virtualAdapterKeywords = [
+  'vmware', 'vmnet', 'virtualbox', 'vethernet', 'hyper-v', 'wsl',
+  'docker', 'tailscale', 'zerotier', 'openvpn', 'wireguard', 'bluetooth',
+  'loopback', 'tap-', 'tun-',
+];
+
+/// 是否为常见私有局域网段（192.168 / 10 / 172.16-31）
+bool _isPrivateLan(String ip) {
+  if (ip.startsWith('192.168.') || ip.startsWith('10.')) return true;
+  if (ip.startsWith('172.')) {
+    final second = int.tryParse(ip.split('.').length > 1 ? ip.split('.')[1] : '') ?? 0;
+    return second >= 16 && second <= 31;
+  }
+  return false;
+}
+
 /// 获取本机局域网 IPv4 地址列表。
+///
+/// 过滤虚拟网卡与链路本地地址（169.254.*），真实局域网段排前面，
+/// 保证 `_addresses.first` 大概率是手机可达的地址。
 Future<List<String>> localIpv4Addresses() async {
-  final interfaces = await NetworkInterface.list();
-  final result = <String>[];
+  final interfaces = await NetworkInterface.list(includeLoopback: false);
+  final preferred = <String>[];
+  final others = <String>[];
   for (final itf in interfaces) {
+    final name = itf.name.toLowerCase();
+    final isVirtual =
+        _virtualAdapterKeywords.any((k) => name.contains(k));
     for (final addr in itf.addresses) {
-      if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
-        result.add(addr.address);
+      if (addr.type != InternetAddressType.IPv4 || addr.isLoopback) continue;
+      if (addr.address.startsWith('169.254.')) continue; // 链路本地无效
+      if (!isVirtual && _isPrivateLan(addr.address)) {
+        preferred.add(addr.address);
+      } else {
+        others.add(addr.address);
       }
     }
   }
-  return result;
+  return [...preferred, ...others];
 }
