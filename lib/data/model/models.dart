@@ -12,6 +12,12 @@ class Book {
   final int chapterCount;
   final DateTime addedAt;
 
+  /// 书架自定义排序值，越小越靠前；全部为 0 时退化为按 addedAt 倒序
+  final int sortIndex;
+
+  /// 所属分组 id，null 表示未分组
+  final int? groupId;
+
   Book({
     required this.id,
     required this.title,
@@ -21,6 +27,8 @@ class Book {
     required this.bookKey,
     required this.chapterCount,
     required this.addedAt,
+    this.sortIndex = 0,
+    this.groupId,
   });
 
   Map<String, Object?> toMap() => {
@@ -33,6 +41,8 @@ class Book {
         'bookKey': bookKey,
         'chapterCount': chapterCount,
         'addedAt': addedAt.millisecondsSinceEpoch,
+        'sortIndex': sortIndex,
+        'groupId': groupId,
       };
 
   static Book fromMap(Map<String, Object?> map) => Book(
@@ -44,6 +54,33 @@ class Book {
         bookKey: map['bookKey'] as String,
         chapterCount: map['chapterCount'] as int,
         addedAt: DateTime.fromMillisecondsSinceEpoch(map['addedAt'] as int),
+        sortIndex: (map['sortIndex'] as int?) ?? 0,
+        groupId: map['groupId'] as int?,
+      );
+}
+
+/// 书架分组
+class BookGroup {
+  final int id;
+  final String name;
+  final int sortIndex;
+
+  const BookGroup({
+    required this.id,
+    required this.name,
+    this.sortIndex = 0,
+  });
+
+  Map<String, Object?> toMap() => {
+        if (id != 0) 'id': id,
+        'name': name,
+        'sortIndex': sortIndex,
+      };
+
+  static BookGroup fromMap(Map<String, Object?> map) => BookGroup(
+        id: map['id'] as int,
+        name: map['name'] as String,
+        sortIndex: (map['sortIndex'] as int?) ?? 0,
       );
 }
 

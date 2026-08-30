@@ -42,3 +42,19 @@ const Color nightForeground = Color(0xFF9E9E9E);
 
 /// 阅读排版内边距
 const EdgeInsets readerPadding = EdgeInsets.fromLTRB(20, 44, 20, 44);
+
+/// 软件背景预设（index 对应 ReadConfig.appBgPreset，只能往后追加）
+class AppBgPreset {
+  final String name;
+  final int color;
+  final bool dark; // 是否套用暗色主题
+
+  const AppBgPreset(this.name, this.color, this.dark);
+}
+
+/// 内置软件背景：白 / 灰 / 黑
+const List<AppBgPreset> appBgPresets = [
+  AppBgPreset('白', 0xFFFFFFFF, false),
+  AppBgPreset('灰', 0xFFF2F3F5, false),
+  AppBgPreset('黑', 0xFF121212, true),
+];

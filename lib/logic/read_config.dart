@@ -23,6 +23,12 @@ class ReadConfig {
   final String bossHotkey; // PC：老板键组合，如 'Alt+H'
   final bool pinned; // PC：窗口钉住置顶（置顶时老板键失效）
 
+  /// 软件背景预设索引：0 白 / 1 灰 / 2 黑
+  final int appBgPreset;
+
+  /// 软件自定义背景图片路径，非空时优先于预设
+  final String appBgImage;
+
   const ReadConfig({
     this.fontSize = 19,
     this.lineSpacing = 1.6,
@@ -35,6 +41,8 @@ class ReadConfig {
     this.blurOnFocusLost = true,
     this.bossHotkey = 'Alt+H',
     this.pinned = false,
+    this.appBgPreset = 0,
+    this.appBgImage = '',
   });
 
   double get effectiveLineHeight => fontSize * lineSpacing;
@@ -51,6 +59,8 @@ class ReadConfig {
     bool? blurOnFocusLost,
     String? bossHotkey,
     bool? pinned,
+    int? appBgPreset,
+    String? appBgImage,
   }) {
     return ReadConfig(
       fontSize: fontSize ?? this.fontSize,
@@ -64,6 +74,8 @@ class ReadConfig {
       blurOnFocusLost: blurOnFocusLost ?? this.blurOnFocusLost,
       bossHotkey: bossHotkey ?? this.bossHotkey,
       pinned: pinned ?? this.pinned,
+      appBgPreset: appBgPreset ?? this.appBgPreset,
+      appBgImage: appBgImage ?? this.appBgImage,
     );
   }
 
@@ -79,6 +91,8 @@ class ReadConfig {
         'blurOnFocusLost': blurOnFocusLost,
         'bossHotkey': bossHotkey,
         'pinned': pinned,
+        'appBgPreset': appBgPreset,
+        'appBgImage': appBgImage,
       };
 
   static ReadConfig fromMap(Map<String, Object?> map) => ReadConfig(
@@ -93,6 +107,8 @@ class ReadConfig {
         blurOnFocusLost: (map['blurOnFocusLost'] as bool?) ?? true,
         bossHotkey: (map['bossHotkey'] as String?) ?? 'Alt+H',
         pinned: (map['pinned'] as bool?) ?? false,
+        appBgPreset: (map['appBgPreset'] as num?)?.toInt() ?? 0,
+        appBgImage: (map['appBgImage'] as String?) ?? '',
       );
 
   String toJson() => jsonEncode(toMap());

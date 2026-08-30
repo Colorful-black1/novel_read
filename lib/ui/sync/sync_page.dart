@@ -224,9 +224,14 @@ class _SyncPageState extends ConsumerState<SyncPage> {
   Widget build(BuildContext context) {
     final isPc = Platform.isWindows;
     return Scaffold(
-      appBar: AppBar(title: const Text('同步')),
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        title: const Text('同步'),
+      ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        // 底部留白：主框架 extendBody 后内容会延伸到透明导航栏后面
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         children: [
           if (isPc) _buildServerSection() else _buildClientSection(),
           const SizedBox(height: 24),

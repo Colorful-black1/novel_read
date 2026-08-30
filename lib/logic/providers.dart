@@ -1,6 +1,7 @@
 /// Riverpod 全局 Provider 定义。
 library;
 
+import 'package:flutter/material.dart' show Color;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
@@ -75,6 +76,30 @@ class ReadConfigNotifier extends StateNotifier<ReadConfig> {
 final readConfigProvider =
     StateNotifierProvider<ReadConfigNotifier, ReadConfig>(
         (ref) => ReadConfigNotifier(ref.watch(sharedPrefsProvider)));
+
+/// 书架分组列表
+final bookGroupsProvider = FutureProvider<List<BookGroup>>((ref) async {
+  return ref.watch(bookRepositoryProvider).listGroups();
+});
+
+/// 软件背景（书架/同步/设置页）：自定义图片优先于预设
+class AppBackdrop {
+  final Color color;
+  final bool dark;
+  final String? imagePath;
+
+  const AppBackdrop({required this.color, required this.dark, this.imagePath});
+}
+
+final appBackdropProvider = Provider<AppBackdrop>((ref) {
+  final cfg = ref.watch(readConfigProvider);
+  if (cfg.appBgImage.isNotEmpty) {
+    return const AppBackdrop(color: Color(0xFF121212), dark: true);
+  }
+  final preset =
+      appBgPresets[cfg.appBgPreset.clamp(0, appBgPresets.length - 1)];
+  return AppBackdrop(color: Color(preset.color), dark: preset.dark);
+});
 
 /// 当前生效的阅读主题（夜间模式优先）
 final effectiveThemeProvider = Provider<ReaderTheme>((ref) {

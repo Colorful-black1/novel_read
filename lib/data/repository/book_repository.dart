@@ -13,7 +13,15 @@ class BookRepository {
   /// 新增书籍及其章节，返回书籍 id。
   Future<int> insertBook(Book book, List<Chapter> chapters) async {
     return _db.transaction((txn) async {
-      final id = await txn.insert('books', book.toMap(),
+      // 新书排在书架最前：取当前最小 sortIndex 的前一位
+      // （未拖动排序时全员为 0，同样成立）
+      final minRows =
+          await txn.query('books', columns: ['MIN(sortIndex) AS m']);
+      final minSort = (minRows.first['m'] as int?) ?? 0;
+      final map = book.sortIndex == 0
+          ? (book.toMap()..['sortIndex'] = minSort - 1)
+          : book.toMap();
+      final id = await txn.insert('books', map,
           conflictAlgorithm: ConflictAlgorithm.replace);
       final batch = txn.batch();
       for (final c in chapters) {
@@ -32,8 +40,53 @@ class BookRepository {
   }
 
   Future<List<Book>> listBooks() async {
-    final rows = await _db.query('books', orderBy: 'addedAt DESC');
+    final rows = await _db.query('books',
+        orderBy: 'sortIndex ASC, addedAt DESC');
     return rows.map(Book.fromMap).toList();
+  }
+
+  /// 按展示顺序持久化书架自定义排序（drag 后调用）。
+  Future<void> reorderBooks(List<int> orderedIds) async {
+    await _db.transaction((txn) async {
+      final batch = txn.batch();
+      for (var i = 0; i < orderedIds.length; i++) {
+        batch.update('books', {'sortIndex': i},
+            where: 'id = ?', whereArgs: [orderedIds[i]]);
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// 分组：增删改查与书籍归属。
+  Future<int> createGroup(String name) async {
+    final rows = await _db.query('book_groups', columns: ['MIN(sortIndex) AS m']);
+    final minSort = (rows.first['m'] as int?) ?? 0;
+    return _db.insert(
+        'book_groups', BookGroup(id: 0, name: name, sortIndex: minSort - 1).toMap());
+  }
+
+  Future<List<BookGroup>> listGroups() async {
+    final rows =
+        await _db.query('book_groups', orderBy: 'sortIndex ASC, id ASC');
+    return rows.map(BookGroup.fromMap).toList();
+  }
+
+  Future<void> renameGroup(int groupId, String name) async {
+    await _db.update('book_groups', {'name': name},
+        where: 'id = ?', whereArgs: [groupId]);
+  }
+
+  Future<void> deleteGroup(int groupId) async {
+    await _db.transaction((txn) async {
+      await txn.update('books', {'groupId': null},
+          where: 'groupId = ?', whereArgs: [groupId]);
+      await txn.delete('book_groups', where: 'id = ?', whereArgs: [groupId]);
+    });
+  }
+
+  Future<void> setBookGroup(int bookId, int? groupId) async {
+    await _db.update('books', {'groupId': groupId},
+        where: 'id = ?', whereArgs: [bookId]);
   }
 
   Future<Book?> getBook(int id) async {

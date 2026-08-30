@@ -27,12 +27,33 @@ class AppDatabase {
     final db = await databaseFactory.openDatabase(
       p.join(dir.path, 'novel_read.db'),
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
         onCreate: createSchema,
+        onUpgrade: upgrade,
       ),
     );
     _db = db;
     return db;
+  }
+
+  /// 版本迁移。
+  ///
+  /// v1→v2：书架自定义排序与分组。
+  /// 回滚说明：SQLite 3.35+ 可 DROP COLUMN，但建议直接备份恢复旧版
+  /// novel_read.db 文件（旧版本应用无法识别新增列）。
+  static Future<void> upgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+          'ALTER TABLE books ADD COLUMN sortIndex INTEGER NOT NULL DEFAULT 0');
+      await db.execute('ALTER TABLE books ADD COLUMN groupId INTEGER');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS book_groups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          sortIndex INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+    }
   }
 
   /// 建表（公开以便单元测试在内存库上复用）。
@@ -46,7 +67,16 @@ class AppDatabase {
         fileSize INTEGER NOT NULL,
         bookKey TEXT NOT NULL UNIQUE,
         chapterCount INTEGER NOT NULL,
-        addedAt INTEGER NOT NULL
+        addedAt INTEGER NOT NULL,
+        sortIndex INTEGER NOT NULL DEFAULT 0,
+        groupId INTEGER
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS book_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        sortIndex INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute('''
