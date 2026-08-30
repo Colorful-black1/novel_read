@@ -12,7 +12,9 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/constants.dart';
 import '../../logic/providers.dart';
 import '../../logic/read_config.dart';
+import '../../services/update_service.dart';
 import '../home/hotkey_settings_dialog.dart';
+import 'update_dialog.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -77,6 +79,20 @@ class SettingsPage extends ConsumerWidget {
               ),
             ),
           ],
+          const SizedBox(height: 8),
+          Text('关于', style: sectionStyle),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.system_update_outlined),
+              title: const Text('检查更新'),
+              subtitle: FutureBuilder<String>(
+                future: UpdateService().currentVersion(),
+                builder: (ctx, snap) =>
+                    Text('当前版本 v${snap.data ?? '…'}'),
+              ),
+              onTap: () => showCheckUpdateFlow(context),
+            ),
+          ),
         ],
       ),
     );

@@ -343,6 +343,29 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
     }
   }
 
+  // ---------------- 左右滑动翻页（滚动模式）----------------
+
+  /// 一次滑动的累计横向位移（左滑为负）
+  double _swipeDelta = 0;
+
+  void _onSwipeUpdate(DragUpdateDetails d) {
+    _swipeDelta += d.delta.dx;
+  }
+
+  /// 滑动结束：位移或甩动速度超过阈值即翻页，方向与点击翻页一致。
+  void _onSwipeEnd(DragEndDetails d, List<PageRange> pages) {
+    final velocity = d.primaryVelocity ?? 0;
+    const distanceThreshold = 60.0;
+    const velocityThreshold = 300.0;
+    if (_swipeDelta <= -distanceThreshold || velocity <= -velocityThreshold) {
+      _goPage(1, pages); // 左滑 → 下一页
+    } else if (_swipeDelta >= distanceThreshold ||
+        velocity >= velocityThreshold) {
+      _goPage(-1, pages); // 右滑 → 上一页
+    }
+    _swipeDelta = 0;
+  }
+
   // ---------------- 构建 ----------------
 
   @override
@@ -450,11 +473,17 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
                   ),
                 ),
               ),
-            // 手势层：点击翻页 / 呼出菜单
+            // 手势层：点击翻页 / 呼出菜单；滚动模式下叠加左右滑动翻页
+            // （横向/覆盖模式的滑动由 PageView 原生处理，不重复注册以免抢占手势）
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTapUp: (d) => _onTapZone(d, constraints, pages),
+                onHorizontalDragUpdate:
+                    cfg.pageMode == PageMode.scroll ? _onSwipeUpdate : null,
+                onHorizontalDragEnd: cfg.pageMode == PageMode.scroll
+                    ? (d) => _onSwipeEnd(d, pages)
+                    : null,
                 child: Container(color: Colors.transparent),
               ),
             ),
