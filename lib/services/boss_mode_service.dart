@@ -21,6 +21,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../core/constants.dart';
 import '../logic/providers.dart';
+import '../logic/read_config.dart';
 
 /// 窗口失焦状态
 final windowBlurredProvider = StateProvider<bool>((ref) => false);
@@ -172,47 +173,56 @@ class BossModeService with WindowListener, TrayListener {
     return true;
   }
 
-  /// 老板键：normal → disguised → hidden → normal
+  /// 老板键：两态切换。
+  ///
+  /// - [DisguiseTarget.none]：normal ↔ hidden（直接隐藏整个窗口，含任务栏图标）
+  /// - [DisguiseTarget.excel]/[DisguiseTarget.word]：normal ↔ disguised（切到对应伪装皮肤）
   ///
   /// 窗口钉住置顶时老板键失效（此时用户正在多软件切换，不希望误触发）。
   Future<void> toggleBossKey() async {
     final container = _container;
     if (container == null) return;
-    if (container.read(readConfigProvider).pinned) return;
+    final cfg = container.read(readConfigProvider);
+    if (cfg.pinned) return;
     final state = container.read(bossStateProvider);
     final navigator = appNavigatorKey.currentState;
-    switch (state) {
-      case BossState.normal:
-        final useDisguise =
-            container.read(readConfigProvider).disguiseEnabled;
-        // 防止伪装页已在栈顶时重复压栈（画面无变化，且栈越叠越深）
-        if (useDisguise && navigator != null && !_disguiseOnTop(navigator)) {
-          await windowManager.setTitle('Book1 - Excel');
-          navigator.pushNamed('/disguise');
-          container.read(bossStateProvider.notifier).state = BossState.disguised;
-        } else {
-          await windowManager.hide();
-          container.read(bossStateProvider.notifier).state = BossState.hidden;
-        }
-      case BossState.disguised:
+
+    if (state == BossState.normal) {
+      if (cfg.disguiseTarget == DisguiseTarget.none) {
+        // 不伪装：直接隐藏窗口（窗口 + 任务栏图标一并消失）
         await windowManager.hide();
         container.read(bossStateProvider.notifier).state = BossState.hidden;
-      case BossState.hidden:
-        await windowManager.show();
-        await windowManager.focus();
-        container.read(bossStateProvider.notifier).state = BossState.normal;
-        // 恢复时必须还原界面状态：隐藏前若在伪装页，退回正常界面并还原标题，
-        // 否则页面停在 Excel 伪装而状态是 normal，下次老板键会重复压栈
-        navigator?.popUntil((r) => r.isFirst);
-        await windowManager.setTitle(appName);
+      } else if (navigator != null && !_disguiseOnTop(navigator)) {
+        // 伪装：改窗口标题并压入对应伪装页（防止已在栈顶时重复压栈）
+        await windowManager.setTitle(_disguiseTitle(cfg.disguiseTarget));
+        navigator.pushNamed(_disguiseRoute(cfg.disguiseTarget));
+        container.read(bossStateProvider.notifier).state = BossState.disguised;
+      }
+    } else {
+      // disguised / hidden → 恢复
+      await windowManager.show();
+      await windowManager.focus();
+      container.read(bossStateProvider.notifier).state = BossState.normal;
+      // 恢复时必须还原界面状态：隐藏前若在伪装页，退回正常界面并还原标题，
+      // 否则页面停在伪装页而状态是 normal，下次老板键会重复压栈
+      navigator?.popUntil((r) => r.isFirst);
+      await windowManager.setTitle(appName);
     }
   }
+
+  /// 伪装对象对应的窗口标题
+  String _disguiseTitle(DisguiseTarget target) =>
+      target == DisguiseTarget.word ? '文档1 - Word' : 'Book1 - Excel';
+
+  /// 伪装对象对应的路由名
+  String _disguiseRoute(DisguiseTarget target) =>
+      target == DisguiseTarget.word ? '/disguise/word' : '/disguise/excel';
 
   /// 伪装页是否在导航栈顶（只查看不弹出）
   bool _disguiseOnTop(NavigatorState navigator) {
     var onTop = false;
     navigator.popUntil((route) {
-      onTop = route.settings.name == '/disguise';
+      onTop = (route.settings.name ?? '').startsWith('/disguise');
       return true; // 立即停止，不实际弹出任何路由
     });
     return onTop;

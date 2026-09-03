@@ -27,7 +27,7 @@ class AppDatabase {
     final db = await databaseFactory.openDatabase(
       p.join(dir.path, 'novel_read.db'),
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onCreate: createSchema,
         onUpgrade: upgrade,
       ),
@@ -60,6 +60,20 @@ class AppDatabase {
       await db.execute(
           "ALTER TABLE books ADD COLUMN coverPath TEXT NOT NULL DEFAULT ''");
     }
+    if (oldVersion < 4) {
+      await createReadingStats(db);
+    }
+  }
+
+  /// 阅读统计表（建表与 v3→v4 迁移共用）。
+  static Future<void> createReadingStats(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS reading_stats (
+        date TEXT PRIMARY KEY,
+        durationMs INTEGER NOT NULL DEFAULT 0,
+        charCount INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
   }
 
   /// 建表（公开以便单元测试在内存库上复用）。
@@ -137,6 +151,7 @@ class AppDatabase {
         savedAt INTEGER NOT NULL
       )
     ''');
+    await createReadingStats(db);
   }
 
   /// 书签表（建表与 v2→v3 迁移共用）。

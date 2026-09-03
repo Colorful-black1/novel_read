@@ -25,7 +25,8 @@ class ReaderPage extends ConsumerStatefulWidget {
   ConsumerState<ReaderPage> createState() => _ReaderPageState();
 }
 
-class _ReaderPageState extends ConsumerState<ReaderPage> {
+class _ReaderPageState extends ConsumerState<ReaderPage>
+    with WidgetsBindingObserver {
   String _content = '';
   List<Chapter> _chapters = [];
   List<Bookmark> _bookmarks = [];
@@ -40,18 +41,69 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
   ScrollController? _scrollController;
   Timer? _saveDebounce;
 
+  // ---------------- 阅读统计埋点 ----------------
+  AppLifecycleState _appState = AppLifecycleState.resumed;
+  Timer? _statsTimer;
+  int _statsTick = 0;
+  int _pendingDurationMs = 0; // 待落库的累计时长
+  int _pendingCharCount = 0; // 待落库的累计字数
+  int _sessionMaxOffset = 0; // 本次会话读到的最远全局偏移（只计前进）
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _statsTimer = Timer.periodic(const Duration(seconds: 1), _onStatsTick);
     _loadBook();
   }
 
   @override
   void dispose() {
+    _flushStats();
+    _statsTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _saveDebounce?.cancel();
     _pageController?.dispose();
     _scrollController?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appState = state;
+    // 切到后台时落库，避免前台累计丢失
+    if (state == AppLifecycleState.paused) _flushStats();
+  }
+
+  /// 每秒计时：仅窗口在前台（resumed）时累计，每 30s 落库一次。
+  void _onStatsTick(Timer timer) {
+    if (_appState == AppLifecycleState.resumed) {
+      _pendingDurationMs += 1000;
+    }
+    _statsTick++;
+    if (_statsTick % 30 == 0) _flushStats();
+  }
+
+  /// 把累计的时长/字数写入当日统计并清零。
+  Future<void> _flushStats() async {
+    final duration = _pendingDurationMs;
+    final chars = _pendingCharCount;
+    _pendingDurationMs = 0;
+    _pendingCharCount = 0;
+    if (duration <= 0 && chars <= 0) return;
+    try {
+      await ref
+          .read(statsRepositoryProvider)
+          .addToday(durationMs: duration, charCount: chars);
+    } catch (_) {}
+  }
+
+  /// 记录阅读位置：仅当前进（超过会话最远偏移）时累计字数。
+  void _advanceTo(int globalOffset) {
+    if (globalOffset > _sessionMaxOffset) {
+      _pendingCharCount += globalOffset - _sessionMaxOffset;
+      _sessionMaxOffset = globalOffset;
+    }
   }
 
   Future<void> _loadBook() async {
@@ -83,6 +135,8 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
         _pendingCharOffset = charOffset;
         _loading = false;
       });
+      // 以恢复的进度作为本次会话起点（不累计为已读字数）
+      _sessionMaxOffset = chapters[chapterIndex].startOffset + charOffset;
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -117,6 +171,8 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
     setState(() {
       _pageIndex = index.clamp(0, pages.length - 1);
     });
+    final page = pages[_pageIndex.clamp(0, pages.length - 1)];
+    _advanceTo(_currentChapter.startOffset + page.start);
     _scheduleSave();
   }
 
@@ -193,6 +249,9 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
       _pendingCharOffset = toLastPage ? _chapters[index].endOffset : 0;
       _pageIndex = 0;
     });
+    _advanceTo(toLastPage
+        ? _chapters[index].endOffset
+        : _chapters[index].startOffset);
     _scheduleSave();
   }
 
@@ -264,6 +323,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
       _pendingCharOffset = bookmark.charOffset;
       _pageIndex = 0;
     });
+    _advanceTo(_chapters[bookmark.chapterIndex].startOffset + bookmark.charOffset);
     _scheduleSave();
   }
 
@@ -299,6 +359,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
       _pendingCharOffset = local;
       _pageIndex = 0;
     });
+    _advanceTo(global);
     _scheduleSave();
   }
 
@@ -323,6 +384,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
                 : (globalOffset - chapter.startOffset).clamp(0, chapterLen - 1);
             _pageIndex = 0;
           });
+          _advanceTo(globalOffset);
           _scheduleSave();
         },
       ),

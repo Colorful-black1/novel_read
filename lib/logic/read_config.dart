@@ -15,6 +15,12 @@ enum PageMode { scroll, horizontal, cover }
 /// 注意：枚举按 index 序列化，只能往后追加，不能调整已有顺序。
 enum BookshelfSort { manual, recentRead, addedTime, title }
 
+/// 老板键伪装对象
+///
+/// 注意：枚举按 index 序列化，只能往后追加，不能调整已有顺序。
+/// [none] 表示不伪装，老板键直接隐藏/恢复窗口。
+enum DisguiseTarget { none, excel, word }
+
 class ReadConfig {
   final double fontSize;
   final double lineSpacing; // 行距倍数
@@ -23,7 +29,7 @@ class ReadConfig {
   final bool nightMode;
   final PageMode pageMode;
   final double brightnessMask; // 0~0.6 亮度遮罩透明度
-  final bool disguiseEnabled; // PC：老板键切换到伪装皮肤
+  final DisguiseTarget disguiseTarget; // PC：老板键伪装对象（none=直接隐藏）
   final bool blurOnFocusLost; // PC：失焦自动最小化
   final String bossHotkey; // PC：老板键组合，如 'Alt+H'
   final bool pinned; // PC：窗口钉住置顶（置顶时老板键失效）
@@ -43,7 +49,7 @@ class ReadConfig {
     this.nightMode = false,
     this.pageMode = PageMode.scroll,
     this.brightnessMask = 0,
-    this.disguiseEnabled = true,
+    this.disguiseTarget = DisguiseTarget.none,
     this.blurOnFocusLost = true,
     this.bossHotkey = 'Alt+H',
     this.pinned = false,
@@ -62,7 +68,7 @@ class ReadConfig {
     bool? nightMode,
     PageMode? pageMode,
     double? brightnessMask,
-    bool? disguiseEnabled,
+    DisguiseTarget? disguiseTarget,
     bool? blurOnFocusLost,
     String? bossHotkey,
     bool? pinned,
@@ -78,7 +84,7 @@ class ReadConfig {
       nightMode: nightMode ?? this.nightMode,
       pageMode: pageMode ?? this.pageMode,
       brightnessMask: brightnessMask ?? this.brightnessMask,
-      disguiseEnabled: disguiseEnabled ?? this.disguiseEnabled,
+      disguiseTarget: disguiseTarget ?? this.disguiseTarget,
       blurOnFocusLost: blurOnFocusLost ?? this.blurOnFocusLost,
       bossHotkey: bossHotkey ?? this.bossHotkey,
       pinned: pinned ?? this.pinned,
@@ -94,11 +100,11 @@ class ReadConfig {
         'fontFamily': fontFamily,
         'themeIndex': themeIndex,
         'nightMode': nightMode,
-        'pageMode': pageMode.index,
-        'brightnessMask': brightnessMask,
-        'disguiseEnabled': disguiseEnabled,
-        'blurOnFocusLost': blurOnFocusLost,
-        'bossHotkey': bossHotkey,
+         'pageMode': pageMode.index,
+         'brightnessMask': brightnessMask,
+         'disguiseTarget': disguiseTarget.index,
+         'blurOnFocusLost': blurOnFocusLost,
+         'bossHotkey': bossHotkey,
         'pinned': pinned,
         'appBgPreset': appBgPreset,
         'appBgImage': appBgImage,
@@ -113,7 +119,7 @@ class ReadConfig {
         nightMode: (map['nightMode'] as bool?) ?? false,
         pageMode: PageMode.values[(map['pageMode'] as num?)?.toInt() ?? 0],
         brightnessMask: (map['brightnessMask'] as num?)?.toDouble() ?? 0,
-        disguiseEnabled: (map['disguiseEnabled'] as bool?) ?? true,
+        disguiseTarget: _parseDisguiseTarget(map),
         blurOnFocusLost: (map['blurOnFocusLost'] as bool?) ?? true,
         bossHotkey: (map['bossHotkey'] as String?) ?? 'Alt+H',
         pinned: (map['pinned'] as bool?) ?? false,
@@ -122,6 +128,17 @@ class ReadConfig {
         bookshelfSort: BookshelfSort
             .values[(map['bookshelfSort'] as num?)?.toInt() ?? 0],
       );
+
+  /// 解析伪装对象；旧配置无 [disguiseTarget] 时按 [disguiseEnabled] 迁移
+  /// （true→excel，false→none），保证老用户配置不丢失。
+  static DisguiseTarget _parseDisguiseTarget(Map<String, Object?> map) {
+    final idx = map['disguiseTarget'] as num?;
+    if (idx != null) {
+      return DisguiseTarget.values[idx.toInt().clamp(0, DisguiseTarget.values.length - 1)];
+    }
+    final oldEnabled = map['disguiseEnabled'] as bool?;
+    return oldEnabled == true ? DisguiseTarget.excel : DisguiseTarget.none;
+  }
 
   String toJson() => jsonEncode(toMap());
 

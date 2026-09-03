@@ -12,8 +12,10 @@ import 'data/database.dart';
 import 'logic/providers.dart';
 import 'services/boss_mode_service.dart';
 import 'ui/disguise/excel_disguise.dart';
+import 'ui/disguise/word_disguise.dart';
 import 'ui/home/bookshelf_page.dart';
 import 'ui/settings/settings_page.dart';
+import 'ui/stats/stats_page.dart';
 import 'ui/sync/sync_page.dart';
 
 Future<void> main() async {
@@ -55,7 +57,8 @@ class NovelReadApp extends StatelessWidget {
       ),
       home: const _HomePage(),
       routes: {
-        '/disguise': (_) => const ExcelDisguisePage(),
+        '/disguise/excel': (_) => const ExcelDisguisePage(),
+        '/disguise/word': (_) => const WordDisguisePage(),
       },
     );
   }
@@ -112,6 +115,7 @@ class _HomePageState extends ConsumerState<_HomePage> {
               children: const [
                 BookshelfPage(),
                 SyncPage(),
+                StatsPage(),
                 SettingsPage(),
               ],
             ),
@@ -130,6 +134,11 @@ class _HomePageState extends ConsumerState<_HomePage> {
               icon: Icon(Icons.sync_outlined),
               selectedIcon: Icon(Icons.sync),
               label: '同步',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.insights_outlined),
+              selectedIcon: Icon(Icons.insights),
+              label: '统计',
             ),
             NavigationDestination(
               icon: Icon(Icons.settings_outlined),

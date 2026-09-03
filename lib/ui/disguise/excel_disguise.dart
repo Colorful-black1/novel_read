@@ -10,10 +10,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui' show ImageFilter;
 
-import '../../data/model/models.dart';
-import '../../logic/import_service.dart';
 import '../../logic/providers.dart';
 import '../../services/boss_mode_service.dart';
+import 'disguise_common.dart';
 
 class ExcelDisguisePage extends ConsumerStatefulWidget {
   const ExcelDisguisePage({super.key});
@@ -34,42 +33,13 @@ class _ExcelDisguisePageState extends ConsumerState<ExcelDisguisePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _contentFuture ??= _loadLatestChapterText();
+    _contentFuture ??= loadLatestChapterText(ref);
   }
 
   @override
   void dispose() {
     _focusNode.dispose();
     super.dispose();
-  }
-
-  /// 加载最近一次阅读的章节文本（伪装页里展示的内容）
-  Future<String> _loadLatestChapterText() async {
-    final books = await ref.read(bookRepositoryProvider).listBooks();
-    if (books.isEmpty) return '';
-    final progressRepo = ref.read(progressRepositoryProvider);
-    // 取 updatedAt 最新的进度对应的书
-    BookTarget? target;
-    DateTime? latest;
-    for (final b in books) {
-      final p = await progressRepo.getProgress(b.bookKey);
-      if (p != null && (latest == null || p.updatedAt.isAfter(latest))) {
-        latest = p.updatedAt;
-        target = BookTarget(book: b, chapterIndex: p.chapterIndex);
-      }
-    }
-    final t = target ?? BookTarget(book: books.first, chapterIndex: 0);
-    final chapters =
-        await ref.read(bookRepositoryProvider).listChapters(t.book.id);
-    if (chapters.isEmpty) return '';
-    final idx = t.chapterIndex.clamp(0, chapters.length - 1);
-    final content =
-        await ImportService(ref.read(bookRepositoryProvider))
-            .readBookContent(t.book);
-    final c = chapters[idx];
-    return content.substring(
-        c.startOffset.clamp(0, content.length),
-        c.endOffset.clamp(0, content.length));
   }
 
   @override
@@ -237,13 +207,6 @@ class _ExcelDisguisePageState extends ConsumerState<ExcelDisguisePage> {
         child: Text(text,
             style: const TextStyle(fontSize: 12, color: Colors.black87)),
       );
-}
-
-class BookTarget {
-  final Book book;
-  final int chapterIndex;
-
-  const BookTarget({required this.book, required this.chapterIndex});
 }
 
 class _GridPainter extends CustomPainter {

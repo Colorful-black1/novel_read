@@ -344,15 +344,9 @@ class ReaderSettingsPanel extends ConsumerWidget {
                 ],
               ),
             ),
-            // PC 专属选项
+            // PC 专属选项（伪装对象在「设置」页配置）
             if (Platform.isWindows) ...[
               const Divider(height: 1),
-              _SettingSwitch(
-                label: '老板键切换伪装皮肤（${cfg.bossHotkey}）',
-                value: cfg.disguiseEnabled,
-                color: fg,
-                onChanged: (v) => change((c) => c.copyWith(disguiseEnabled: v)),
-              ),
               _SettingSwitch(
                 label: '失去焦点时自动最小化',
                 value: cfg.blurOnFocusLost,

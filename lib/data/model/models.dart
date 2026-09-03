@@ -316,3 +316,33 @@ class Bookmark {
         createdAtMs: map['createdAt'] as int,
       );
 }
+
+/// 阅读统计（按天聚合）
+class ReadingStat {
+  /// 日期键，格式 YYYY-MM-DD
+  final String date;
+
+  /// 当日阅读时长（毫秒）
+  final int durationMs;
+
+  /// 当日阅读字数
+  final int charCount;
+
+  const ReadingStat({
+    required this.date,
+    this.durationMs = 0,
+    this.charCount = 0,
+  });
+
+  Map<String, Object?> toMap() => {
+        'date': date,
+        'durationMs': durationMs,
+        'charCount': charCount,
+      };
+
+  static ReadingStat fromMap(Map<String, Object?> map) => ReadingStat(
+        date: map['date'] as String,
+        durationMs: (map['durationMs'] as num?)?.toInt() ?? 0,
+        charCount: (map['charCount'] as num?)?.toInt() ?? 0,
+      );
+}

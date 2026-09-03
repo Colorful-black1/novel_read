@@ -10,6 +10,7 @@ import '../core/constants.dart';
 import '../data/model/models.dart';
 import '../data/repository/book_repository.dart';
 import '../data/repository/bookmark_repository.dart';
+import '../data/repository/stats_repository.dart';
 import '../data/repository/sync_repository.dart';
 import 'read_config.dart';
 
@@ -32,6 +33,9 @@ final bookmarkRepositoryProvider = Provider<BookmarkRepository>(
 
 final syncRepositoryProvider = Provider<SyncRepository>(
     (ref) => SyncRepository(ref.watch(databaseProvider)));
+
+final statsRepositoryProvider = Provider<StatsRepository>(
+    (ref) => StatsRepository(ref.watch(databaseProvider)));
 
 /// 书架列表（含每本书的最新进度），删除或导入后调用 invalidate 刷新
 final bookListProvider = FutureProvider<List<BookWithProgress>>((ref) async {

@@ -59,13 +59,38 @@ class SettingsPage extends ConsumerWidget {
                         context: context,
                         builder: (_) => const HotkeySettingsDialog()),
                   ),
-                  SwitchListTile(
-                    secondary: const Icon(Icons.grid_on_outlined),
-                    title: const Text('切换到伪装皮肤'),
-                    value: cfg.disguiseEnabled,
-                    onChanged: (v) => ref
-                        .read(readConfigProvider.notifier)
-                        .update((c) => c.copyWith(disguiseEnabled: v)),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.grid_on_outlined),
+                            SizedBox(width: 8),
+                            Text('老板键伪装对象'),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text('「无」= 直接隐藏窗口（含任务栏图标），再按恢复',
+                            style: Theme.of(context).textTheme.bodySmall),
+                        const SizedBox(height: 8),
+                        SegmentedButton<DisguiseTarget>(
+                          segments: const [
+                            ButtonSegment(
+                                value: DisguiseTarget.none, label: Text('无')),
+                            ButtonSegment(
+                                value: DisguiseTarget.excel, label: Text('Excel')),
+                            ButtonSegment(
+                                value: DisguiseTarget.word, label: Text('Word')),
+                          ],
+                          selected: {cfg.disguiseTarget},
+                          onSelectionChanged: (s) => ref
+                              .read(readConfigProvider.notifier)
+                              .update((c) => c.copyWith(disguiseTarget: s.first)),
+                        ),
+                      ],
+                    ),
                   ),
                   SwitchListTile(
                     secondary: const Icon(Icons.visibility_off_outlined),
