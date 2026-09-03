@@ -1,7 +1,7 @@
 name: novel_read
 description: "本地 TXT 小说阅读器：手机 + PC 双端，支持进度同步与 Windows 摸鱼伪装。"
 publish_to: 'none'
-version: 0.2.1
+version: 0.2.2
 
 environment:
   sdk: ^3.5.0
